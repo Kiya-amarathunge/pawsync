@@ -1,0 +1,85 @@
+'use client';
+import { useEffect, useState } from 'react';
+import { useAuth } from '@/context/AuthContext';
+import DashboardLayout from '@/components/layout/DashboardLayout';
+
+export default function EarningsPage() {
+  const { token } = useAuth();
+  const [earnings, setEarnings] = useState<any>(null);
+  const [period, setPeriod] = useState('monthly');
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (!token) return;
+    setIsLoading(true);
+    fetch(`/api/provider/dashboard/earnings?period=${period}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => { setEarnings(data); setIsLoading(false); });
+  }, [token, period]);
+
+  return (
+    <DashboardLayout>
+      <div className="animate-fadeIn">
+        <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <h1 className="page-title">Earnings</h1>
+            <p className="page-subtitle">Track your revenue and financial performance</p>
+          </div>
+          <select className="input" style={{ maxWidth: 160 }} value={period} onChange={e => setPeriod(e.target.value)}>
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+          </select>
+        </div>
+
+        {/* Total */}
+        <div style={{
+          background: 'linear-gradient(135deg, var(--primary), #157a5a)',
+          borderRadius: 'var(--radius-xl)',
+          padding: '32px',
+          color: 'white',
+          marginBottom: 24,
+          textAlign: 'center',
+        }}>
+          <p style={{ fontSize: 14, opacity: 0.8, marginBottom: 8, textTransform: 'capitalize' }}>{period} Total</p>
+          <p style={{ fontSize: 48, fontWeight: 700 }}>
+            {isLoading ? '...' : `Rs. ${(earnings?.total || 0).toLocaleString()}`}
+          </p>
+        </div>
+
+        {/* Breakdown */}
+        <div className="card" style={{ padding: 24 }}>
+          <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20 }}>Revenue Breakdown</h2>
+          {isLoading ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {[1, 2, 3, 4].map(i => <div key={i} className="skeleton" style={{ height: 40 }} />)}
+            </div>
+          ) : earnings?.labels?.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-state-icon">💰</div>
+              <p className="empty-state-title">No earnings data yet</p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {earnings?.labels?.map((label: string, i: number) => {
+                const maxVal = Math.max(...(earnings.data || [1]));
+                const pct = maxVal > 0 ? ((earnings.data[i] / maxVal) * 100) : 0;
+                return (
+                  <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span style={{ fontSize: 13, color: 'var(--text-secondary)', width: 100, flexShrink: 0 }}>{label}</span>
+                    <div style={{ flex: 1, height: 8, background: 'var(--surface-2)', borderRadius: 4, overflow: 'hidden' }}>
+                      <div style={{ width: `${pct}%`, height: '100%', background: 'var(--primary)', borderRadius: 4, transition: 'width 0.5s ease' }} />
+                    </div>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--primary)', width: 80, textAlign: 'right' }}>
+                      Rs. {earnings.data[i].toLocaleString()}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </DashboardLayout>
+  );
+}
