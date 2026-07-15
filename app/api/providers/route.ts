@@ -1,51 +1,88 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
 import ServiceProvider from '@/models/ServiceProvider';
-import User from '@/models/User';
+import Veterinarian from '@/models/Veterinarian';
 import Review from '@/models/Review';
+import Appointment from '@/models/Appointment';
+import User from '@/models/User';
+import { getRequestUser } from '@/lib/request-auth';
 
-// GET /api/providers
+interface ProviderResult {
+  providerId: { _id: unknown; name: string; email: string; phoneNumber?: string };
+  serviceType: string[];
+  specialization?: string;
+  location?: { address?: string; lat?: number; lng?: number };
+  pricing?: Array<{ service: string; price: number; duration: number }>;
+  availability?: Array<{ dayOfWeek: number; startTime: string; endTime: string }>;
+  blockedDates?: Date[];
+  [key: string]: unknown;
+}
+
 export async function GET(req: NextRequest) {
   try {
     await connectDB();
-
-    const { searchParams } = req.nextUrl;
-    const serviceType = searchParams.get('serviceType');
-    const minRating = parseFloat(searchParams.get('minRating') || '0');
-    const page = parseInt(searchParams.get('page') || '1');
+    const params = req.nextUrl.searchParams;
+    const serviceType = params.get('serviceType') || '';
+    const specialization = params.get('specialization')?.toLowerCase() || '';
+    const location = params.get('location')?.toLowerCase() || '';
+    const minRating = Number(params.get('minRating')) || 0;
+    const maxPrice = Number(params.get('maxPrice')) || Number.POSITIVE_INFINITY;
+    const availableOn = params.get('availableOn');
+    const latitude = Number(params.get('lat'));
+    const longitude = Number(params.get('lng'));
+    const page = Math.max(1, Number(params.get('page')) || 1);
     const limit = 20;
 
-    const filter: any = { isVerified: true };
-    if (serviceType) filter.serviceType = { $in: [serviceType] };
-
-    const providers = await ServiceProvider.find(filter)
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .populate('providerId', 'name email phoneNumber');
-
-    // Add average rating to each provider
-    const providersWithRating = await Promise.all(
-      providers.map(async (provider) => {
-        const reviews = await Review.find({ providerId: provider.providerId });
-        const avgRating =
-          reviews.length > 0
-            ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
-            : 0;
-        return {
-          ...provider.toObject(),
-          averageRating: Math.round(avgRating * 10) / 10,
-          reviewCount: reviews.length,
-        };
-      })
-    );
-
-    // Filter by minimum rating
-    const filtered = providersWithRating.filter((p) => p.averageRating >= minRating);
-    const total = await ServiceProvider.countDocuments(filter);
-
-    return NextResponse.json({ providers: filtered, total, page, pages: Math.ceil(total / limit) });
+    const requestUser = getRequestUser(req);
+    const owner = requestUser?.role === 'pet_owner' ? await User.findById(requestUser.userId).select('favoriteProviders').lean() : null;
+    const favorites = new Set((owner?.favoriteProviders || []).map(id => String(id)));
+    const [serviceProviders, veterinarians] = await Promise.all([
+      ServiceProvider.find({ isVerified: true }).populate('providerId', 'name email phoneNumber').lean(),
+      Veterinarian.find({ isVerified: true }).populate('vetId', 'name email phoneNumber').lean(),
+    ]);
+    const normalized: ProviderResult[] = [
+      ...serviceProviders.map(provider => ({ ...provider, serviceType: provider.serviceType || [], providerId: provider.providerId } as ProviderResult)),
+      ...veterinarians.map(vet => ({ ...vet, businessName: `Dr. ${(vet.vetId as unknown as { name: string }).name}`, serviceType: ['veterinary', 'telemedicine'], providerId: vet.vetId } as ProviderResult)),
+    ];
+    const withRatings = await Promise.all(normalized.map(async provider => {
+      const providerId = String(provider.providerId._id);
+      const providerName = provider.providerId.name;
+      const providerEmail = provider.providerId.email;
+      const stats = await Review.aggregate([
+        { $match: { providerId: provider.providerId._id } },
+        { $group: { _id: null, averageRating: { $avg: '$rating' }, reviewCount: { $sum: 1 } } },
+      ]);
+      const appointments = await Appointment.find({ providerId: provider.providerId._id, status: { $in: ['confirmed', 'completed', 'cancelled'] } }).select('status createdAt statusUpdatedAt').lean();
+      const accepted = appointments.filter(appointment => ['confirmed', 'completed'].includes(appointment.status)).length;
+      const responseSamples = appointments.filter(appointment => appointment.statusUpdatedAt).map(appointment => (new Date(appointment.statusUpdatedAt!).getTime() - new Date(appointment.createdAt).getTime()) / 60_000);
+      const responseTimeMinutes = responseSamples.length ? Math.round(responseSamples.reduce((sum, value) => sum + value, 0) / responseSamples.length) : null;
+      let distanceKm: number | null = null;
+      if (Number.isFinite(latitude) && Number.isFinite(longitude) && provider.location?.lat != null && provider.location?.lng != null) {
+        const dLat = (provider.location.lat - latitude) * Math.PI / 180;
+        const dLng = (provider.location.lng - longitude) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) ** 2 + Math.cos(latitude * Math.PI / 180) * Math.cos(provider.location.lat * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+        distanceKm = Math.round(6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 10) / 10;
+      }
+      return { ...provider, providerId, providerName, providerEmail, averageRating: Math.round((stats[0]?.averageRating || 0) * 10) / 10, reviewCount: stats[0]?.reviewCount || 0, acceptanceRate: appointments.length ? Math.round(accepted / appointments.length * 100) : 100, responseTimeMinutes, distanceKm, isFavorite: favorites.has(providerId) };
+    }));
+    const day = availableOn ? new Date(`${availableOn}T00:00:00`).getDay() : null;
+    const filtered = withRatings.filter(provider => {
+      const services = provider.serviceType || [];
+      const prices = provider.pricing || [];
+      const address = provider.location?.address?.toLowerCase() || '';
+      const specialty = provider.specialization?.toLowerCase() || '';
+      const blocked = availableOn && provider.blockedDates?.some(date => new Date(date).toDateString() === new Date(`${availableOn}T00:00:00`).toDateString());
+      return (!serviceType || services.includes(serviceType))
+        && (!specialization || specialty.includes(specialization))
+        && (!location || address.includes(location))
+        && provider.averageRating >= minRating
+        && (!Number.isFinite(maxPrice) || prices.some(price => price.price <= maxPrice))
+        && (day === null || (!blocked && provider.availability?.some(slot => slot.dayOfWeek === day)));
+    });
+    const start = (page - 1) * limit;
+    return NextResponse.json({ providers: filtered.slice(start, start + limit), total: filtered.length, page, pages: Math.ceil(filtered.length / limit) });
   } catch (error) {
     console.error('Get providers error:', error);
-    return NextResponse.json({ error: 'Something went wrong' }, { status: 500 });
+    return NextResponse.json({ error: 'Unable to load providers' }, { status: 500 });
   }
 }

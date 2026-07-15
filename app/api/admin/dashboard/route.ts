@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
       User.countDocuments({ registrationDate: { $gte: last24h } }),
       User.countDocuments({ isVerified: true, isActive: false, role: { $in: ['veterinarian', 'service_provider'] } }),
       ForumPost.countDocuments({ isFlagged: true, isModerated: false }),
-      Review.countDocuments({ isModerated: true }),
+      Review.countDocuments({ isFlagged: true, removedAt: { $exists: false } }),
       Appointment.countDocuments({ dateTime: { $gte: today } }),
       Appointment.countDocuments({ status: 'pending' }),
     ]);

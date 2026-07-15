@@ -8,6 +8,10 @@ export interface INotification extends Document {
   deliveredViaSMS: boolean;
   deliveredViaEmail: boolean;
   createdAt: Date;
+  relatedEntityId?: mongoose.Types.ObjectId;
+  actionUrl?: string;
+  deliveredViaPush: boolean;
+  dedupeKey?: string;
 }
 
 const NotificationSchema = new Schema<INotification>({
@@ -17,9 +21,14 @@ const NotificationSchema = new Schema<INotification>({
   isRead: { type: Boolean, default: false },
   deliveredViaSMS: { type: Boolean, default: false },
   deliveredViaEmail: { type: Boolean, default: false },
+  deliveredViaPush: { type: Boolean, default: false },
+  relatedEntityId: { type: Schema.Types.ObjectId },
+  actionUrl: String,
+  dedupeKey: String,
   createdAt: { type: Date, default: Date.now },
 });
 
 NotificationSchema.index({ userId: 1, isRead: 1 });
+NotificationSchema.index({ userId: 1, dedupeKey: 1, createdAt: -1 });
 
 export default mongoose.models.Notification || mongoose.model<INotification>('Notification', NotificationSchema);

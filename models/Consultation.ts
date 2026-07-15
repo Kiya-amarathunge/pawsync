@@ -13,6 +13,9 @@ export interface IConsultation extends Document {
   callQuality: number;
   recordingMetadata: string;
   createdAt: Date;
+  status: 'active' | 'completed';
+  endedAt?: Date;
+  summary?: string;
 }
 
 const ConsultationSchema = new Schema<IConsultation>({
@@ -28,9 +31,13 @@ const ConsultationSchema = new Schema<IConsultation>({
   callQuality: { type: Number },
   recordingMetadata: { type: String },
   createdAt: { type: Date, default: Date.now },
+  status: { type: String, enum: ['active', 'completed'], default: 'active' },
+  endedAt: Date,
+  summary: String,
 });
 
 ConsultationSchema.index({ vetId: 1 });
 ConsultationSchema.index({ petId: 1 });
+ConsultationSchema.index({ appointmentId: 1 }, { unique: true });
 
 export default mongoose.models.Consultation || mongoose.model<IConsultation>('Consultation', ConsultationSchema);

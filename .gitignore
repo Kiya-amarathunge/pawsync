@@ -26,12 +26,18 @@
 
 # debug
 npm-debug.log*
+.dev-server*.log
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+
+# runtime uploads (use object storage in production)
+/storage/
+/public/uploads/
 
 # vercel
 .vercel

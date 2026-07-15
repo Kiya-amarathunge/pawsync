@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
 import ForumPost from '@/models/ForumPost';
 import Review from '@/models/Review';
-import Notification from '@/models/Notification';
 import AuditLog from '@/models/AuditLog';
 import { verifyToken } from '@/lib/jwt';
+import { createNotification } from '@/lib/notifications';
 
 function getAdminFromRequest(req: NextRequest) {
   const authHeader = req.headers.get('authorization');
@@ -46,7 +46,7 @@ export async function PATCH(
       if (!post) {
         return NextResponse.json({ error: 'Post not found' }, { status: 404 });
       }
-      targetUserId = post.userId;
+      targetUserId = String(post.authorId);
 
       await ForumPost.findByIdAndUpdate(id, {
         $inc: { warningCount: 1 },
@@ -56,7 +56,7 @@ export async function PATCH(
       if (!review) {
         return NextResponse.json({ error: 'Review not found' }, { status: 404 });
       }
-      targetUserId = review.userId;
+      targetUserId = String(review.ownerId);
 
       await Review.findByIdAndUpdate(id, {
         $inc: { warningCount: 1 },
@@ -70,11 +70,11 @@ export async function PATCH(
 
     // Optional notification
     if (notifyUser && targetUserId) {
-      await Notification.create({
+      await createNotification({
         userId: targetUserId,
         type: 'WARNING',
         message: `You received a warning: ${reason}`,
-        isRead: false,
+        actionUrl: '/notifications',
       });
     }
 

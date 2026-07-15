@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import DashboardLayout from '@/components/layout/DashboardLayout';
+import Link from 'next/link';
 
 export default function ClientsPage() {
   const { token } = useAuth();
@@ -72,6 +73,7 @@ export default function ClientsPage() {
                     <span className="badge badge-orange">{client.appointments.filter((a: any) => a.status === 'pending').length} pending</span>
                   )}
                 </div>
+                <Link className="btn btn-secondary btn-sm" href={`/messages?provider=${client.id}`}>Message</Link>
               </div>
             ))}
           </div>

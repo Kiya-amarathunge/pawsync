@@ -1,4 +1,5 @@
 'use client';
+/* eslint-disable @typescript-eslint/no-explicit-any, react/no-unescaped-entities */
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
@@ -20,6 +21,12 @@ export default function AppointmentsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('upcoming');
   const [showBookingModal, setShowBookingModal] = useState(false);
+  const [reschedulingId, setReschedulingId] = useState('');
+  const [rescheduleDateTime, setRescheduleDateTime] = useState('');
+  const [reviewAppointment, setReviewAppointment] = useState<any>(null);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState('');
+  const [reviewPhotos, setReviewPhotos] = useState<File[]>([]);
 
   // Booking state
   const [bookingStep, setBookingStep] = useState(1);
@@ -29,7 +36,7 @@ export default function AppointmentsPage() {
   const [isBooking, setIsBooking] = useState(false);
   const [booking, setBooking] = useState({
     serviceType: '', providerId: '', petId: '',
-    date: '', time: '', notes: '', price: 0,
+    date: '', time: '', notes: '', price: 0, duration: 60,
   });
 
   const fetchAppointments = async () => {
@@ -40,6 +47,7 @@ export default function AppointmentsPage() {
     setIsLoading(false);
   };
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
   useEffect(() => { fetchAppointments(); }, [token]);
 
   const fetchProviders = async (serviceType: string) => {
@@ -55,7 +63,7 @@ export default function AppointmentsPage() {
   };
 
   const fetchSlots = async (providerId: string, date: string) => {
-    const res = await fetch(`/api/providers/${providerId}/availability?date=${date}`, { headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetch(`/api/providers/${providerId}/availability?date=${date}&duration=${booking.duration}`, { headers: { Authorization: `Bearer ${token}` } });
     const data = await res.json();
     setAvailableSlots(data.availableSlots || []);
   };
@@ -68,7 +76,8 @@ export default function AppointmentsPage() {
   };
 
   const handleSelectProvider = (provider: any) => {
-    setBooking(prev => ({ ...prev, providerId: provider.providerId?._id || provider.providerId }));
+    const price = provider.pricing?.find((item: any) => item.service === booking.serviceType);
+    setBooking(prev => ({ ...prev, providerId: provider.providerId?._id || provider.providerId, price: price?.price || 0, duration: price?.duration || 60 }));
     setBookingStep(3);
   };
 
@@ -94,8 +103,7 @@ export default function AppointmentsPage() {
           serviceType: booking.serviceType,
           dateTime: dateTime.toISOString(),
           notes: booking.notes,
-          price: booking.price || 0,
-          duration: 60,
+          duration: booking.duration,
         }),
       });
       const data = await res.json();
@@ -103,7 +111,7 @@ export default function AppointmentsPage() {
       showToast('Appointment booked successfully!', 'success');
       setShowBookingModal(false);
       setBookingStep(1);
-      setBooking({ serviceType: '', providerId: '', petId: '', date: '', time: '', notes: '', price: 0 });
+      setBooking({ serviceType: '', providerId: '', petId: '', date: '', time: '', notes: '', price: 0, duration: 60 });
       fetchAppointments();
     } catch (err: any) {
       showToast(err.message, 'error');
@@ -128,6 +136,36 @@ export default function AppointmentsPage() {
     }
   };
 
+  const handleReschedule = async (id: string) => {
+    if (!rescheduleDateTime) return;
+    try {
+      const response = await fetch(`/api/appointments/${id}/reschedule`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ dateTime: new Date(rescheduleDateTime).toISOString() }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      showToast(data.message, 'success');
+      setReschedulingId(''); setRescheduleDateTime(''); await fetchAppointments();
+    } catch (error: unknown) {
+      showToast(error instanceof Error ? error.message : 'Unable to reschedule appointment', 'error');
+    }
+  };
+
+  const submitReview = async () => {
+    if (!reviewAppointment) return;
+    try {
+      const response = await fetch('/api/reviews', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ appointmentId: reviewAppointment._id, rating: reviewRating, comment: reviewComment }) });
+      const data = await response.json(); if (!response.ok) throw new Error(data.error);
+      for (const photo of reviewPhotos) {
+        const body = new FormData(); body.append('file', photo);
+        await fetch(`/api/reviews/${data.review._id}/photos`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body });
+      }
+      showToast('Review submitted', 'success'); setReviewAppointment(null); setReviewComment(''); setReviewPhotos([]);
+    } catch (error) { showToast(error instanceof Error ? error.message : 'Unable to submit review', 'error'); }
+  };
+
   const upcoming = appointments.filter(a => ['pending', 'confirmed'].includes(a.status));
   const past = appointments.filter(a => ['completed', 'cancelled', 'rescheduled'].includes(a.status));
   const displayed = activeTab === 'upcoming' ? upcoming : past;
@@ -144,6 +182,7 @@ export default function AppointmentsPage() {
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
   const minDate = tomorrow.toISOString().split('T')[0];
+  const minRescheduleDate = `${minDate}T00:00`;
 
   return (
     <DashboardLayout>
@@ -215,17 +254,21 @@ export default function AppointmentsPage() {
                   </div>
                 )}
                 <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                  {appt.status === 'completed' && <button className="btn btn-secondary btn-sm" onClick={() => setReviewAppointment(appt)}>Review</button>}
                   {appt.serviceType === 'telemedicine' && appt.status === 'confirmed' && (
                     <a href={`/consultations/${appt._id}`} className="btn btn-primary btn-sm">Join Call 💻</a>
                   )}
                   {['pending', 'confirmed'].includes(appt.status) && (
-                    <button className="btn btn-danger btn-sm" onClick={() => handleCancel(appt._id)}>Cancel</button>
+                    <><button className="btn btn-secondary btn-sm" onClick={() => setReschedulingId(appt._id)}>Reschedule</button><button className="btn btn-danger btn-sm" onClick={() => handleCancel(appt._id)}>Cancel</button></>
                   )}
                 </div>
+                {reschedulingId === appt._id && <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}><input className="input" type="datetime-local" min={minRescheduleDate} value={rescheduleDateTime} onChange={event => setRescheduleDateTime(event.target.value)} /><button className="btn btn-primary btn-sm" onClick={() => void handleReschedule(appt._id)}>Submit</button><button className="btn btn-ghost btn-sm" onClick={() => setReschedulingId('')}>Close</button></div>}
               </div>
             ))}
           </div>
         )}
+
+        {reviewAppointment && <div className="modal-overlay" onClick={() => setReviewAppointment(null)}><div className="modal" onClick={event => event.stopPropagation()} style={{ maxWidth: 520 }}><h2 className="modal-title">Review completed appointment</h2><p className="modal-subtitle">Verified reviews help other pet owners choose confidently.</p><div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>{[1, 2, 3, 4, 5].map(star => <button key={star} type="button" onClick={() => setReviewRating(star)} style={{ border: 0, background: 'none', fontSize: 28, color: star <= reviewRating ? '#fbbf24' : '#d1d5db', cursor: 'pointer' }}>★</button>)}</div><textarea className="input" rows={5} minLength={50} maxLength={5000} placeholder="Describe your experience in at least 50 characters" value={reviewComment} onChange={event => setReviewComment(event.target.value)} /><p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 5 }}>{reviewComment.length}/50 minimum</p><label className="btn btn-secondary btn-sm" style={{ marginTop: 12 }}>Add photos<input hidden type="file" multiple accept="image/jpeg,image/png" onChange={event => setReviewPhotos(Array.from(event.target.files || []).slice(0, 5))} /></label>{reviewPhotos.length > 0 && <p style={{ fontSize: 12, marginTop: 6 }}>{reviewPhotos.length} photo(s) selected</p>}<div style={{ display: 'flex', gap: 10, marginTop: 18 }}><button className="btn btn-secondary" onClick={() => setReviewAppointment(null)}>Cancel</button><button className="btn btn-primary" disabled={reviewComment.trim().length < 50} onClick={() => void submitReview()}>Submit review</button></div></div></div>}
 
         {/* Booking Modal */}
         {showBookingModal && (
@@ -308,7 +351,7 @@ export default function AppointmentsPage() {
                           <div className="avatar">{provider.businessName?.[0] || '?'}</div>
                           <div style={{ flex: 1 }}>
                             <p style={{ fontWeight: 600, fontSize: 14 }}>{provider.businessName}</p>
-                            <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{provider.providerId?.name}</p>
+                            <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{provider.specialization || provider.location?.address || provider.serviceType?.join(', ')}</p>
                             <div style={{ display: 'flex', gap: 4, marginTop: 2 }}>
                               {'★'.repeat(Math.round(provider.averageRating || 0)).split('').map((s, i) => (
                                 <span key={i} style={{ color: '#fbbf24', fontSize: 11 }}>★</span>

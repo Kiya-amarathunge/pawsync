@@ -1,66 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import connectDB from '@/lib/db';
 import ForumPost from '@/models/ForumPost';
-import { verifyToken } from '@/lib/jwt';
+import { getRequestUser, hasRole } from '@/lib/request-auth';
+import { moderateText } from '@/lib/content-moderation';
 
-function getUserFromRequest(req: NextRequest) {
-  const authHeader = req.headers.get('authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
-  const token = authHeader.split(' ')[1];
-  return verifyToken(token);
-}
+const schema = z.object({ category: z.enum(['health', 'nutrition', 'training', 'general']), title: z.string().trim().min(5).max(200), content: z.string().trim().min(10).max(10_000) });
 
-// GET /api/forum/posts
 export async function GET(req: NextRequest) {
   try {
     await connectDB();
-    const { searchParams } = req.nextUrl;
-    const category = searchParams.get('category');
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = 20;
-
-    const filter: any = { isModerated: false };
-    if (category) filter.category = category;
-
-    const posts = await ForumPost.find(filter)
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .populate('authorId', 'name role');
-
-    const total = await ForumPost.countDocuments(filter);
-
-    return NextResponse.json({ posts, total, page, pages: Math.ceil(total / limit) });
-  } catch (error) {
-    console.error('Get forum posts error:', error);
-    return NextResponse.json({ error: 'Something went wrong' }, { status: 500 });
-  }
+    const category = req.nextUrl.searchParams.get('category'); const sort = req.nextUrl.searchParams.get('sort') || 'recent'; const flagged = req.nextUrl.searchParams.get('flagged') === 'true';
+    const page = Math.max(1, Number(req.nextUrl.searchParams.get('page')) || 1); const limit = 20; const user = getRequestUser(req);
+    const filter: Record<string, unknown> = flagged && user?.role === 'admin' ? { isFlagged: true, removedAt: { $exists: false } } : { isModerated: false, isFlagged: false, removedAt: { $exists: false } };
+    if (category && category !== 'all') filter.category = category;
+    let posts = await ForumPost.find(filter).populate('authorId', 'name role').populate('replies.authorId', 'name role').lean();
+    posts = posts.map(post => ({ ...post, isFollowing: user ? post.followers?.some((id: unknown) => String(id) === user.userId) : false, trendingScore: (post.upvotes?.length || 0) * 3 + (post.replies?.length || 0) * 2 + (post.views || 0) * 0.1 }));
+    posts.sort(sort === 'trending' ? (a, b) => b.trendingScore - a.trendingScore : (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const start = (page - 1) * limit;
+    return NextResponse.json({ posts: posts.slice(start, start + limit), total: posts.length, page, pages: Math.ceil(posts.length / limit) });
+  } catch (error) { console.error('Get forum posts error:', error); return NextResponse.json({ error: 'Unable to load forum posts' }, { status: 500 }); }
 }
 
-// POST /api/forum/posts
 export async function POST(req: NextRequest) {
   try {
-    await connectDB();
-    const user = getUserFromRequest(req);
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-    const { category, title, content, images } = await req.json();
-
-    if (!category || !title || !content) {
-      return NextResponse.json({ error: 'Category, title and content are required' }, { status: 400 });
-    }
-
-    const post = await ForumPost.create({
-      authorId: user.userId,
-      category,
-      title,
-      content,
-      images: images || [],
-    });
-
-    return NextResponse.json({ message: 'Post created successfully', post }, { status: 201 });
-  } catch (error) {
-    console.error('Create forum post error:', error);
-    return NextResponse.json({ error: 'Something went wrong' }, { status: 500 });
-  }
+    await connectDB(); const user = getRequestUser(req); if (!hasRole(user, ['pet_owner', 'veterinarian'])) return NextResponse.json({ error: 'Forum access required' }, { status: 403 });
+    const parsed = schema.safeParse(await req.json()); if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
+    const moderation = moderateText(`${parsed.data.title} ${parsed.data.content}`); if (!moderation.allowed) return NextResponse.json({ error: `Post blocked: ${moderation.reasons.join(', ')}` }, { status: 422 });
+    const post = await ForumPost.create({ authorId: user.userId, ...parsed.data }); return NextResponse.json({ message: 'Post created', post }, { status: 201 });
+  } catch (error) { console.error('Create forum post error:', error); return NextResponse.json({ error: 'Unable to create post' }, { status: 500 }); }
 }

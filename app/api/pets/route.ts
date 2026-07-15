@@ -1,66 +1,58 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import connectDB from '@/lib/db';
 import Pet from '@/models/Pet';
-import { verifyToken } from '@/lib/jwt';
+import { getRequestUser, hasRole } from '@/lib/request-auth';
 
-function getUserFromRequest(req: NextRequest) {
-  const authHeader = req.headers.get('authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
-  const token = authHeader.split(' ')[1];
-  return verifyToken(token);
-}
+const petSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  species: z.string().trim().min(1).max(50),
+  breed: z.string().trim().max(80).optional().default(''),
+  birthDate: z.string().date().optional().or(z.literal('')),
+  weight: z.number().positive().max(500).optional(),
+  microchipNumber: z.string().trim().max(80).optional().default(''),
+  dietaryInfo: z.string().trim().max(2000).optional().default(''),
+});
 
-// GET /api/pets — get all pets for logged in owner
 export async function GET(req: NextRequest) {
   try {
     await connectDB();
-
-    const user = getUserFromRequest(req);
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const user = getRequestUser(req);
+    if (!hasRole(user, ['pet_owner'])) {
+      return NextResponse.json({ error: 'Pet owner access required' }, { status: 403 });
     }
-
     const pets = await Pet.find({ ownerId: user.userId }).sort({ createdAt: -1 });
-
     return NextResponse.json({ pets });
   } catch (error) {
     console.error('Get pets error:', error);
-    return NextResponse.json({ error: 'Something went wrong' }, { status: 500 });
+    return NextResponse.json({ error: 'Unable to load pets' }, { status: 500 });
   }
 }
 
-// POST /api/pets — create a new pet
 export async function POST(req: NextRequest) {
   try {
     await connectDB();
-
-    const user = getUserFromRequest(req);
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const user = getRequestUser(req);
+    if (!hasRole(user, ['pet_owner'])) {
+      return NextResponse.json({ error: 'Pet owner access required' }, { status: 403 });
     }
-
-    const body = await req.json();
-
-    const { name, species, breed, birthDate, weight, microchipNumber, dietaryInfo } = body;
-
-    if (!name || !species) {
-      return NextResponse.json({ error: 'Pet name and species are required' }, { status: 400 });
+    const parsed = petSchema.safeParse(await req.json());
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
     }
-
+    const data = parsed.data;
     const pet = await Pet.create({
+      ...data,
+      birthDate: data.birthDate ? new Date(data.birthDate) : undefined,
       ownerId: user.userId,
-      name,
-      species,
-      breed,
-      birthDate,
-      weight,
-      microchipNumber,
-      dietaryInfo,
+      weightHistory: data.weight ? [{ weight: data.weight, date: new Date() }] : [],
+      dietHistory: data.dietaryInfo
+        ? [{ description: data.dietaryInfo, date: new Date() }]
+        : [],
     });
-
     return NextResponse.json({ message: 'Pet created successfully', pet }, { status: 201 });
   } catch (error) {
     console.error('Create pet error:', error);
-    return NextResponse.json({ error: 'Something went wrong' }, { status: 500 });
+    return NextResponse.json({ error: 'Unable to create pet' }, { status: 500 });
   }
 }

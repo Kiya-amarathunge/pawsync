@@ -1,332 +1,176 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { io, type Socket } from 'socket.io-client';
+import { useParams, useRouter } from 'next/navigation';
+import { Camera, CameraOff, CircleStop, Mic, MicOff, MonitorUp, RefreshCw, Send, Stethoscope } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
-import { useParams, useRouter } from 'next/navigation';
+
+interface Consultation { _id: string; petId: string; recordingMetadata: string }
+interface HealthRecord { _id: string; diagnosis: string; treatment: string; date: string }
+interface ChatMessage { text: string; isOwn: boolean; sentAt: string }
+type Quality = 'connecting' | 'good' | 'fair' | 'poor';
 
 export default function ConsultationPage() {
   const { token, user } = useAuth();
   const { showToast } = useToast();
-  const params = useParams();
+  const appointmentId = useParams().id as string;
   const router = useRouter();
-  const appointmentId = params.id as string;
-
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
-  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
-  const socketRef = useRef<WebSocket | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const peerRef = useRef<RTCPeerConnection | null>(null);
+  const socketRef = useRef<Socket | null>(null);
+  const roomRef = useRef('');
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const statsRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const cameraIndexRef = useRef(0);
+  const startedRef = useRef(false);
 
-  const [consultation, setConsultation] = useState<any>(null);
-  const [isConnecting, setIsConnecting] = useState(true);
-  const [isConnected, setIsConnected] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
-  const [isVideoOff, setIsVideoOff] = useState(false);
-  const [chatMessages, setChatMessages] = useState<{ text: string; isOwn: boolean }[]>([]);
-  const [chatInput, setChatInput] = useState('');
+  const [consultation, setConsultation] = useState<Consultation | null>(null);
+  const [petName, setPetName] = useState('Patient');
+  const [connected, setConnected] = useState(false);
+  const [quality, setQuality] = useState<Quality>('connecting');
+  const [muted, setMuted] = useState(false);
+  const [videoOff, setVideoOff] = useState(false);
+  const [sharingScreen, setSharingScreen] = useState(false);
   const [duration, setDuration] = useState(0);
+  const [activeTab, setActiveTab] = useState<'chat' | 'records' | 'notes'>('chat');
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [records, setRecords] = useState<HealthRecord[]>([]);
   const [notes, setNotes] = useState('');
-  const [petRecords, setPetRecords] = useState<any[]>([]);
-  const [showRecords, setShowRecords] = useState(false);
-  const durationRef = useRef<any>(null);
+  const [diagnosis, setDiagnosis] = useState('');
+  const [prescription, setPrescription] = useState('');
+  const [consultationType, setConsultationType] = useState<'routine' | 'emergency'>('routine');
+  const [ending, setEnding] = useState(false);
 
-  useEffect(() => {
-    startConsultation();
-    return () => {
-      cleanup();
-    };
-  }, [appointmentId]);
+  const cleanup = useCallback(() => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (statsRef.current) clearInterval(statsRef.current);
+    socketRef.current?.disconnect();
+    peerRef.current?.close();
+    localStreamRef.current?.getTracks().forEach(track => track.stop());
+    timerRef.current = null; statsRef.current = null; socketRef.current = null; peerRef.current = null; localStreamRef.current = null;
+  }, []);
 
-  const startConsultation = async () => {
+  const measureQuality = (peer: RTCPeerConnection) => {
+    statsRef.current = setInterval(async () => {
+      const stats = await peer.getStats();
+      let received = 0; let lost = 0;
+      stats.forEach(report => { if (report.type === 'inbound-rtp' && report.kind === 'video') { received += report.packetsReceived || 0; lost += report.packetsLost || 0; } });
+      const loss = received + lost > 0 ? lost / (received + lost) : 0;
+      setQuality(loss > 0.08 ? 'poor' : loss > 0.03 ? 'fair' : 'good');
+    }, 5000);
+  };
+
+  const start = useCallback(async () => {
+    if (!token || !user || startedRef.current) return;
+    startedRef.current = true;
     try {
-      // Start consultation and get room ID
-      const res = await fetch('/api/consultations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ appointmentId }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      setConsultation(data.consultation);
-
-      // Get local media
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      const response = await fetch('/api/consultations', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ appointmentId }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      setConsultation(data.consultation); setPetName(data.pet?.name || 'Patient'); roomRef.current = data.roomId;
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 } }, audio: true });
+      localStreamRef.current = stream;
       if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-
-      // Set up WebRTC peer connection
-      const pc = new RTCPeerConnection({
-        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-      });
-      peerConnectionRef.current = pc;
-
-      stream.getTracks().forEach(track => pc.addTrack(track, stream));
-
-      pc.ontrack = (event) => {
-        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
-        setIsConnected(true);
-        setIsConnecting(false);
-        durationRef.current = setInterval(() => setDuration(d => d + 1), 1000);
+      const peer = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+      peerRef.current = peer;
+      stream.getTracks().forEach(track => peer.addTrack(track, stream));
+      peer.ontrack = event => { if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0]; setConnected(true); setQuality('good'); if (!timerRef.current) timerRef.current = setInterval(() => setDuration(value => value + 1), 1000); };
+      peer.onconnectionstatechange = () => {
+        if (peer.connectionState === 'connected') { setConnected(true); setQuality('good'); }
+        if (['disconnected', 'failed'].includes(peer.connectionState)) { setConnected(false); setQuality('poor'); peer.restartIce(); }
       };
-
-      pc.onicecandidate = (event) => {
-        if (event.candidate && socketRef.current) {
-          socketRef.current.send(JSON.stringify({
-            type: 'webrtc:ice-candidate',
-            roomId: data.roomId,
-            candidate: event.candidate,
-          }));
-        }
-      };
-
-      // Connect to signaling server
-      const ws = new WebSocket(`ws://localhost:3001`);
-      socketRef.current = ws;
-
-      ws.onopen = () => {
-        ws.send(JSON.stringify({ type: 'webrtc:join-room', roomId: data.roomId, userId: user?.id }));
-      };
-
-      ws.onmessage = async (event) => {
-        const msg = JSON.parse(event.data);
-        if (msg.type === 'webrtc:user-joined') {
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          ws.send(JSON.stringify({ type: 'webrtc:offer', roomId: data.roomId, offer }));
-        } else if (msg.type === 'webrtc:offer') {
-          await pc.setRemoteDescription(msg.offer);
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          ws.send(JSON.stringify({ type: 'webrtc:answer', roomId: data.roomId, answer }));
-        } else if (msg.type === 'webrtc:answer') {
-          await pc.setRemoteDescription(msg.answer);
-          setIsConnected(true);
-          setIsConnecting(false);
-        } else if (msg.type === 'webrtc:ice-candidate') {
-          await pc.addIceCandidate(msg.candidate);
-        }
-      };
-
-      setIsConnecting(false);
-
-      // Fetch pet records if vet
-      if (user?.role === 'veterinarian' && data.consultation?.petId) {
-        const recRes = await fetch(`/api/health-records?petId=${data.consultation.petId}`, { headers: { Authorization: `Bearer ${token}` } });
-        const recData = await recRes.json();
-        setPetRecords(recData.records || []);
+      await fetch('/api/socket', { headers: { Authorization: `Bearer ${token}` } });
+      const signalingUrl = process.env.NEXT_PUBLIC_SIGNALING_URL || 'http://localhost:3001';
+      const socket = io(signalingUrl, { auth: { token }, reconnection: true, reconnectionAttempts: 8 });
+      socketRef.current = socket;
+      peer.onicecandidate = event => { if (event.candidate) socket.emit('webrtc:ice-candidate', { roomId: data.roomId, candidate: event.candidate }); };
+      socket.on('connect', () => socket.emit('webrtc:join-room', data.roomId));
+      socket.on('reconnect', () => socket.emit('webrtc:join-room', data.roomId));
+      socket.on('webrtc:user-joined', async () => { const offer = await peer.createOffer(); await peer.setLocalDescription(offer); socket.emit('webrtc:offer', { roomId: data.roomId, offer }); });
+      socket.on('webrtc:offer', async offer => { await peer.setRemoteDescription(offer); const answer = await peer.createAnswer(); await peer.setLocalDescription(answer); socket.emit('webrtc:answer', { roomId: data.roomId, answer }); });
+      socket.on('webrtc:answer', async answer => peer.setRemoteDescription(answer));
+      socket.on('webrtc:ice-candidate', async candidate => { try { await peer.addIceCandidate(candidate); } catch { /* Candidate can arrive during renegotiation. */ } });
+      socket.on('consultation:chat', message => setMessages(current => [...current, { text: message.text, isOwn: false, sentAt: message.sentAt }]));
+      socket.on('webrtc:user-left', () => { setConnected(false); setQuality('connecting'); });
+      socket.on('webrtc:error', message => showToast(message, 'error'));
+      measureQuality(peer);
+      if (user.role === 'veterinarian') {
+        const recordsResponse = await fetch(`/api/consultations/${data.consultation._id}/records`, { headers: { Authorization: `Bearer ${token}` } });
+        const recordsData = await recordsResponse.json(); setRecords(recordsData.healthRecords || []);
       }
-
-    } catch (err: any) {
-      showToast(err.message || 'Could not start consultation', 'error');
-      setIsConnecting(false);
+    } catch (error) {
+      startedRef.current = false;
+      showToast(error instanceof Error ? error.message : 'Could not start consultation', 'error');
+      setQuality('poor');
     }
+  }, [appointmentId, showToast, token, user]);
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void start(); return cleanup; }, [cleanup, start]);
+
+  const toggleMute = () => { localStreamRef.current?.getAudioTracks().forEach(track => { track.enabled = muted; }); setMuted(value => !value); };
+  const toggleVideo = () => { localStreamRef.current?.getVideoTracks().forEach(track => { track.enabled = videoOff; }); setVideoOff(value => !value); };
+
+  const shareScreen = async () => {
+    if (sharingScreen) return;
+    try {
+      const display = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      const track = display.getVideoTracks()[0];
+      const sender = peerRef.current?.getSenders().find(item => item.track?.kind === 'video');
+      await sender?.replaceTrack(track); setSharingScreen(true);
+      track.onended = async () => { const camera = localStreamRef.current?.getVideoTracks()[0]; if (camera) await sender?.replaceTrack(camera); setSharingScreen(false); };
+    } catch { showToast('Screen sharing was cancelled', 'info'); }
   };
 
-  const cleanup = () => {
-    if (durationRef.current) clearInterval(durationRef.current);
-    peerConnectionRef.current?.close();
-    socketRef.current?.close();
-    if (localVideoRef.current?.srcObject) {
-      (localVideoRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop());
-    }
+  const switchCamera = async () => {
+    const devices = (await navigator.mediaDevices.enumerateDevices()).filter(device => device.kind === 'videoinput');
+    if (devices.length < 2) return showToast('No second camera is available', 'info');
+    cameraIndexRef.current = (cameraIndexRef.current + 1) % devices.length;
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: devices[cameraIndexRef.current].deviceId } } });
+    const nextTrack = stream.getVideoTracks()[0];
+    const previous = localStreamRef.current?.getVideoTracks()[0]; previous?.stop();
+    if (localStreamRef.current && previous) { localStreamRef.current.removeTrack(previous); localStreamRef.current.addTrack(nextTrack); }
+    await peerRef.current?.getSenders().find(sender => sender.track?.kind === 'video')?.replaceTrack(nextTrack);
+    if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
   };
 
-  const toggleMute = () => {
-    const stream = localVideoRef.current?.srcObject as MediaStream;
-    stream?.getAudioTracks().forEach(t => { t.enabled = isMuted; });
-    setIsMuted(!isMuted);
-  };
-
-  const toggleVideo = () => {
-    const stream = localVideoRef.current?.srcObject as MediaStream;
-    stream?.getVideoTracks().forEach(t => { t.enabled = isVideoOff; });
-    setIsVideoOff(!isVideoOff);
-  };
-
-  const sendChatMessage = () => {
-    if (!chatInput.trim()) return;
-    setChatMessages(prev => [...prev, { text: chatInput, isOwn: true }]);
-    setChatInput('');
+  const sendMessage = () => {
+    const text = chatInput.trim(); if (!text || !socketRef.current) return;
+    socketRef.current.emit('consultation:chat', { roomId: roomRef.current, text });
+    setMessages(current => [...current, { text, isOwn: true, sentAt: new Date().toISOString() }]); setChatInput('');
   };
 
   const endCall = async () => {
-    cleanup();
-    if (consultation?._id && user?.role === 'veterinarian') {
-      await fetch(`/api/consultations/${consultation._id}/end`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ notes, duration, diagnosis: '', prescription: '' }),
-      });
-    }
-    showToast('Consultation ended', 'info');
-    router.push('/appointments');
+    if (user?.role === 'veterinarian' && !diagnosis.trim()) { setActiveTab('notes'); return showToast('Add a diagnosis before completing the consultation', 'error'); }
+    setEnding(true);
+    try {
+      if (user?.role === 'veterinarian' && consultation) {
+        const response = await fetch(`/api/consultations/${consultation._id}/end`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ notes, diagnosis, prescription, duration, type: consultationType, callQuality: quality === 'good' ? 5 : quality === 'fair' ? 3 : 1 }) });
+        const data = await response.json(); if (!response.ok) throw new Error(data.error);
+        showToast(data.message, 'success');
+      }
+      cleanup(); router.push(user?.role === 'pet_owner' ? '/appointments' : '/provider/appointments');
+    } catch (error) { showToast(error instanceof Error ? error.message : 'Unable to end consultation', 'error'); setEnding(false); }
   };
 
-  const formatDuration = (s: number) => `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
+  const formatDuration = (seconds: number) => `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+  const qualityColor = quality === 'good' ? '#34d399' : quality === 'fair' ? '#fbbf24' : quality === 'poor' ? '#f87171' : '#94a3b8';
 
-  return (
-    <div style={{ height: '100vh', background: '#0a0f0d', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      {/* Header */}
-      <div style={{ padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#141a17', borderBottom: '1px solid #1e2722' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 24 }}>🐾</span>
-          <div>
-            <p style={{ color: 'white', fontWeight: 600, fontSize: 15 }}>PawSync Telemedicine</p>
-            <p style={{ color: '#9aa5b1', fontSize: 12 }}>Video Consultation</p>
-          </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {isConnected && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#1e2722', padding: '6px 14px', borderRadius: 'var(--radius-full)' }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#1D9E75' }} className="animate-pulse-green" />
-              <span style={{ color: '#1D9E75', fontSize: 13, fontWeight: 600 }}>{formatDuration(duration)}</span>
-            </div>
-          )}
-          {isConnecting && <span style={{ color: '#9aa5b1', fontSize: 13 }}>Connecting...</span>}
-        </div>
-      </div>
-
-      {/* Main area */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {/* Video area */}
-        <div style={{ flex: 1, position: 'relative', background: '#0a0f0d' }}>
-          {/* Remote video (main) */}
-          <video ref={remoteVideoRef} autoPlay playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          {!isConnected && (
-            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16 }}>
-              <div style={{ fontSize: 64 }}>🐾</div>
-              <p style={{ color: 'white', fontSize: 18, fontWeight: 600 }}>
-                {isConnecting ? 'Connecting to consultation...' : 'Waiting for the other participant...'}
-              </p>
-              <div className="spinner" style={{ borderColor: 'rgba(255,255,255,0.2)', borderTopColor: 'var(--primary)' }} />
-            </div>
-          )}
-          {/* Local video (picture-in-picture) */}
-          <div style={{ position: 'absolute', bottom: 24, right: 24, width: 160, height: 120, borderRadius: 'var(--radius-md)', overflow: 'hidden', border: '2px solid #1e2722', boxShadow: '0 4px 20px rgba(0,0,0,0.5)' }}>
-            <video ref={localVideoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          </div>
-        </div>
-
-        {/* Right panel */}
-        <div style={{ width: 300, background: '#141a17', borderLeft: '1px solid #1e2722', display: 'flex', flexDirection: 'column' }}>
-          {/* Tabs */}
-          <div style={{ display: 'flex', borderBottom: '1px solid #1e2722' }}>
-            {['Chat', user?.role === 'veterinarian' ? 'Records' : null, user?.role === 'veterinarian' ? 'Notes' : null].filter(Boolean).map(tab => (
-              <button
-                key={tab!}
-                onClick={() => tab === 'Records' ? setShowRecords(true) : setShowRecords(false)}
-                style={{
-                  flex: 1, padding: '12px 8px', background: 'none', border: 'none',
-                  color: '#9aa5b1', fontSize: 13, cursor: 'pointer', fontWeight: 500,
-                  borderBottom: '2px solid transparent',
-                }}
-              >
-                {tab}
-              </button>
-            ))}
-          </div>
-
-          {/* Chat */}
-          {!showRecords && (
-            <>
-              <div style={{ flex: 1, overflow: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {chatMessages.length === 0 && (
-                  <p style={{ color: '#4a5568', fontSize: 13, textAlign: 'center', marginTop: 20 }}>Chat with the other participant</p>
-                )}
-                {chatMessages.map((msg, i) => (
-                  <div key={i} style={{ display: 'flex', justifyContent: msg.isOwn ? 'flex-end' : 'flex-start' }}>
-                    <div style={{
-                      padding: '8px 12px', borderRadius: '12px',
-                      background: msg.isOwn ? 'var(--primary)' : '#1e2722',
-                      color: 'white', fontSize: 13, maxWidth: '80%',
-                    }}>{msg.text}</div>
-                  </div>
-                ))}
-                {user?.role === 'veterinarian' && (
-                  <div style={{ marginTop: 16 }}>
-                    <p style={{ color: '#9aa5b1', fontSize: 12, marginBottom: 6 }}>Consultation Notes</p>
-                    <textarea
-                      value={notes}
-                      onChange={e => setNotes(e.target.value)}
-                      placeholder="Add notes, observations..."
-                      style={{ width: '100%', background: '#1e2722', border: '1px solid #2d3748', borderRadius: 'var(--radius-md)', color: 'white', padding: '10px', fontSize: 12, resize: 'vertical', minHeight: 80 }}
-                    />
-                  </div>
-                )}
-              </div>
-              <div style={{ padding: '12px', borderTop: '1px solid #1e2722', display: 'flex', gap: 8 }}>
-                <input
-                  value={chatInput}
-                  onChange={e => setChatInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && sendChatMessage()}
-                  placeholder="Type a message..."
-                  style={{ flex: 1, background: '#1e2722', border: '1px solid #2d3748', borderRadius: 'var(--radius-md)', color: 'white', padding: '8px 12px', fontSize: 13, outline: 'none' }}
-                />
-                <button onClick={sendChatMessage} style={{ background: 'var(--primary)', border: 'none', borderRadius: 'var(--radius-md)', color: 'white', padding: '8px 14px', cursor: 'pointer', fontSize: 16 }}>→</button>
-              </div>
-            </>
-          )}
-
-          {/* Pet Records (vet only) */}
-          {showRecords && (
-            <div style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
-              <p style={{ color: '#9aa5b1', fontSize: 12, marginBottom: 12 }}>Patient Health Records</p>
-              {petRecords.length === 0 ? (
-                <p style={{ color: '#4a5568', fontSize: 13 }}>No records found</p>
-              ) : (
-                petRecords.map(record => (
-                  <div key={record._id} style={{ background: '#1e2722', borderRadius: 'var(--radius-md)', padding: '12px', marginBottom: 8 }}>
-                    <p style={{ color: 'white', fontSize: 13, fontWeight: 600 }}>{record.diagnosis || 'General'}</p>
-                    <p style={{ color: '#9aa5b1', fontSize: 11, marginTop: 2 }}>{new Date(record.date).toLocaleDateString()}</p>
-                    {record.treatment && <p style={{ color: '#9aa5b1', fontSize: 12, marginTop: 4 }}>{record.treatment}</p>}
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Controls */}
-      <div style={{ padding: '20px', background: '#141a17', borderTop: '1px solid #1e2722', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
-        <button
-          onClick={toggleMute}
-          style={{
-            width: 52, height: 52, borderRadius: '50%',
-            background: isMuted ? '#dc2626' : '#1e2722',
-            border: 'none', cursor: 'pointer', fontSize: 20,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            transition: 'all 0.2s ease',
-          }}
-          title={isMuted ? 'Unmute' : 'Mute'}
-        >
-          {isMuted ? '🔇' : '🎤'}
-        </button>
-        <button
-          onClick={toggleVideo}
-          style={{
-            width: 52, height: 52, borderRadius: '50%',
-            background: isVideoOff ? '#dc2626' : '#1e2722',
-            border: 'none', cursor: 'pointer', fontSize: 20,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            transition: 'all 0.2s ease',
-          }}
-          title={isVideoOff ? 'Turn on camera' : 'Turn off camera'}
-        >
-          {isVideoOff ? '📵' : '📹'}
-        </button>
-        <button
-          onClick={endCall}
-          style={{
-            width: 64, height: 64, borderRadius: '50%',
-            background: '#dc2626', border: 'none', cursor: 'pointer', fontSize: 24,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            boxShadow: '0 4px 16px rgba(220, 38, 38, 0.4)',
-            transition: 'all 0.2s ease',
-          }}
-          title="End call"
-        >
-          📵
-        </button>
-      </div>
-    </div>
-  );
+  return <div style={{ height: '100dvh', background: '#090d0b', color: 'white', display: 'grid', gridTemplateRows: '64px minmax(0, 1fr) 82px', overflow: 'hidden' }}>
+    <header style={{ padding: '0 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#141a17', borderBottom: '1px solid #26302b' }}><div><strong>PawSync Consultation</strong><p style={{ fontSize: 12, color: '#9aa5b1' }}>{petName} · {consultationType}</p></div><div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: qualityColor }} /><span style={{ fontSize: 12, color: qualityColor, textTransform: 'capitalize' }}>{quality}</span><strong style={{ fontVariantNumeric: 'tabular-nums' }}>{formatDuration(duration)}</strong></div></header>
+    <main style={{ minHeight: 0, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 330px' }}>
+      <section style={{ position: 'relative', minWidth: 0 }}><video ref={remoteVideoRef} autoPlay playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />{!connected && <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center' }}><div style={{ textAlign: 'center' }}><RefreshCw size={34} style={{ margin: '0 auto 12px' }} /><p>Waiting for the other participant</p></div></div>}<div style={{ position: 'absolute', right: 18, bottom: 18, width: 'clamp(120px, 18vw, 210px)', aspectRatio: '4 / 3', border: '2px solid #36423c', borderRadius: 6, overflow: 'hidden', background: '#111' }}><video ref={localVideoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} /></div></section>
+      <aside style={{ minWidth: 0, background: '#141a17', borderLeft: '1px solid #26302b', display: 'grid', gridTemplateRows: '48px minmax(0, 1fr)' }}><div style={{ display: 'flex', borderBottom: '1px solid #26302b' }}>{(['chat', ...(user?.role === 'veterinarian' ? ['records', 'notes'] : [])] as Array<'chat' | 'records' | 'notes'>).map(tab => <button key={tab} onClick={() => setActiveTab(tab)} style={{ flex: 1, border: 0, borderBottom: activeTab === tab ? '2px solid #34d399' : '2px solid transparent', background: 'none', color: activeTab === tab ? 'white' : '#9aa5b1', textTransform: 'capitalize', cursor: 'pointer' }}>{tab}</button>)}</div>
+        {activeTab === 'chat' && <div style={{ minHeight: 0, display: 'grid', gridTemplateRows: 'minmax(0, 1fr) 58px' }}><div style={{ overflow: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>{messages.map((message, index) => <div key={`${message.sentAt}-${index}`} style={{ alignSelf: message.isOwn ? 'flex-end' : 'flex-start', maxWidth: '85%', padding: '8px 11px', borderRadius: 6, background: message.isOwn ? '#1d9e75' : '#26302b', fontSize: 13 }}>{message.text}</div>)}</div><div style={{ display: 'flex', gap: 8, padding: 10, borderTop: '1px solid #26302b' }}><input value={chatInput} maxLength={1000} onChange={event => setChatInput(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') sendMessage(); }} style={{ flex: 1, minWidth: 0, border: '1px solid #36423c', background: '#1b231f', color: 'white', borderRadius: 5, padding: '8px 10px' }} /><button onClick={sendMessage} aria-label="Send message" style={{ width: 38, border: 0, borderRadius: 5, background: '#1d9e75', color: 'white' }}><Send size={17} /></button></div></div>}
+        {activeTab === 'records' && <div style={{ overflow: 'auto', padding: 14 }}>{records.length ? records.map(record => <article key={record._id} style={{ padding: 12, marginBottom: 9, background: '#1b231f', borderRadius: 6 }}><strong style={{ fontSize: 13 }}>{record.diagnosis || 'General update'}</strong><p style={{ color: '#9aa5b1', fontSize: 11 }}>{new Date(record.date).toLocaleDateString()}</p><p style={{ marginTop: 6, fontSize: 12 }}>{record.treatment}</p></article>) : <p style={{ color: '#9aa5b1', fontSize: 13 }}>No records available.</p>}</div>}
+        {activeTab === 'notes' && <div style={{ overflow: 'auto', padding: 14, display: 'grid', alignContent: 'start', gap: 10 }}><div style={{ display: 'flex', gap: 8 }}><button className={`btn btn-sm ${consultationType === 'routine' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setConsultationType('routine')}>Routine</button><button className={`btn btn-sm ${consultationType === 'emergency' ? 'btn-danger' : 'btn-secondary'}`} onClick={() => setConsultationType('emergency')}>Emergency</button></div><textarea placeholder="Clinical notes and observations" value={notes} onChange={event => setNotes(event.target.value)} style={{ minHeight: 120, background: '#1b231f', border: '1px solid #36423c', borderRadius: 5, color: 'white', padding: 10 }} /><textarea placeholder="Diagnosis (required)" value={diagnosis} onChange={event => setDiagnosis(event.target.value)} style={{ minHeight: 90, background: '#1b231f', border: '1px solid #36423c', borderRadius: 5, color: 'white', padding: 10 }} /><textarea placeholder="Prescription and follow-up instructions" value={prescription} onChange={event => setPrescription(event.target.value)} style={{ minHeight: 90, background: '#1b231f', border: '1px solid #36423c', borderRadius: 5, color: 'white', padding: 10 }} /></div>}
+      </aside>
+    </main>
+    <footer style={{ display: 'flex', gap: 12, justifyContent: 'center', alignItems: 'center', background: '#141a17', borderTop: '1px solid #26302b' }}><button className="btn btn-secondary" onClick={toggleMute} title={muted ? 'Unmute' : 'Mute'}>{muted ? <MicOff size={19} /> : <Mic size={19} />}</button><button className="btn btn-secondary" onClick={toggleVideo} title={videoOff ? 'Turn camera on' : 'Turn camera off'}>{videoOff ? <CameraOff size={19} /> : <Camera size={19} />}</button><button className="btn btn-secondary" onClick={() => void shareScreen()} title="Share screen"><MonitorUp size={19} /></button><button className="btn btn-secondary" onClick={() => void switchCamera()} title="Switch camera"><Camera size={19} /><RefreshCw size={13} /></button>{user?.role === 'veterinarian' && <button className="btn btn-secondary" onClick={() => setActiveTab('notes')} title="Clinical summary"><Stethoscope size={19} /></button>}<button className="btn btn-danger" onClick={() => void endCall()} disabled={ending} title="End call"><CircleStop size={20} /> {ending ? 'Ending...' : 'End'}</button></footer>
+  </div>;
 }

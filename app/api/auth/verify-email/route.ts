@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
     }
 
     user.isVerified = true;
-    user.isActive = true;
+    if (user.role === 'pet_owner') user.isActive = true;
     await user.save();
 
     return NextResponse.redirect(new URL('/login?message=verified', req.url));

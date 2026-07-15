@@ -1,58 +1,47 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import connectDB from '@/lib/db';
 import Consultation from '@/models/Consultation';
 import HealthRecord from '@/models/HealthRecord';
 import Appointment from '@/models/Appointment';
-import { verifyToken } from '@/lib/jwt';
-import crypto from 'crypto';
+import Notification from '@/models/Notification';
+import { getRequestUser, hasRole } from '@/lib/request-auth';
+import { encryptHealthPayload } from '@/lib/health-encryption';
 
-function getUserFromRequest(req: NextRequest) {
-  const authHeader = req.headers.get('authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
-  const token = authHeader.split(' ')[1];
-  return verifyToken(token);
-}
+const summarySchema = z.object({
+  diagnosis: z.string().trim().min(1).max(2000),
+  prescription: z.string().trim().max(2000).optional().default(''),
+  duration: z.number().int().nonnegative(),
+  notes: z.string().trim().max(5000).optional().default(''),
+  type: z.enum(['routine', 'emergency']).default('routine'),
+  callQuality: z.number().min(0).max(5).optional(),
+});
 
-// PATCH /api/consultations/[id]/end
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     await connectDB();
-    const user = getUserFromRequest(req);
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
+    const user = getRequestUser(req);
+    if (!hasRole(user, ['veterinarian'])) return NextResponse.json({ error: 'Veterinarian access required' }, { status: 403 });
+    const parsed = summarySchema.safeParse(await req.json());
+    if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
     const { id } = await params;
-    const { diagnosis, prescription, duration, notes } = await req.json();
-
-    const consultation = await Consultation.findOneAndUpdate(
-      { _id: id, vetId: user.userId },
-      { $set: { diagnosis, prescription, duration, notes } },
-      { new: true }
-    );
-
-    if (!consultation) return NextResponse.json({ error: 'Consultation not found' }, { status: 404 });
-
-    // Save to health record automatically
-    const content = JSON.stringify({ petId: consultation.petId, diagnosis, prescription });
-    const checksum = crypto.createHash('sha256').update(content).digest('hex');
-
+    const consultation = await Consultation.findOne({ _id: id, vetId: user.userId, status: 'active' });
+    if (!consultation) return NextResponse.json({ error: 'Active consultation not found' }, { status: 404 });
+    const data = parsed.data;
+    const summary = `${data.diagnosis}${data.prescription ? ` Prescription: ${data.prescription}` : ''}`;
+    Object.assign(consultation, data, { status: 'completed', endedAt: new Date(), summary });
+    await consultation.save();
+    const payload = { diagnosis: data.diagnosis, treatment: data.notes, prescriptions: data.prescription ? [data.prescription] : [] };
+    const encrypted = encryptHealthPayload(payload);
     await HealthRecord.create({
-      petId: consultation.petId,
-      ownerId: consultation.ownerId,
-      date: new Date(),
-      diagnosis,
-      treatment: notes,
-      prescriptions: prescription ? [prescription] : [],
-      addedBy: user.userId,
-      version: 1,
-      checksum,
+      petId: consultation.petId, ownerId: consultation.ownerId, date: new Date(), addedBy: user.userId,
+      version: 1, ...encrypted, versionHistory: [{ version: 1, ...encrypted, changedBy: user.userId, changedAt: new Date() }],
     });
-
-    // Mark appointment as completed
     await Appointment.findByIdAndUpdate(consultation.appointmentId, { status: 'completed' });
-
-    return NextResponse.json({ message: 'Consultation ended and health record saved', consultation });
+    await Notification.create({ userId: consultation.ownerId, type: 'CONSULTATION_SUMMARY', message: `Your consultation summary is ready: ${summary}`, isRead: false });
+    return NextResponse.json({ message: 'Consultation ended and encrypted summary saved', consultation });
   } catch (error) {
     console.error('End consultation error:', error);
-    return NextResponse.json({ error: 'Something went wrong' }, { status: 500 });
+    return NextResponse.json({ error: 'Unable to end consultation' }, { status: 500 });
   }
 }

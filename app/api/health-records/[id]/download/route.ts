@@ -1,85 +1,70 @@
 import { NextRequest, NextResponse } from 'next/server';
+import PDFDocument from 'pdfkit';
 import connectDB from '@/lib/db';
 import HealthRecord from '@/models/HealthRecord';
 import Pet from '@/models/Pet';
-import { verifyToken } from '@/lib/jwt';
+import { getRequestUser, hasRole } from '@/lib/request-auth';
+import { findAccessiblePet } from '@/lib/pet-access';
+import { decryptHealthPayload } from '@/lib/health-encryption';
 
-function getUserFromRequest(req: NextRequest) {
-  const authHeader = req.headers.get('authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
-  const token = authHeader.split(' ')[1];
-  return verifyToken(token);
+function createPdf(data: {
+  petName: string;
+  date: Date;
+  diagnosis: string;
+  treatment: string;
+  prescriptions: string[];
+  version: number;
+}) {
+  return new Promise<Buffer>((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 54, info: { Title: `${data.petName} health record` } });
+    const chunks: Buffer[] = [];
+    doc.on('data', chunk => chunks.push(Buffer.from(chunk)));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+    doc.fontSize(22).fillColor('#1d6f55').text('PawSync Health Report');
+    doc.moveDown(0.4).fontSize(12).fillColor('#333').text(`Pet: ${data.petName}`);
+    doc.text(`Record date: ${data.date.toLocaleDateString()}`);
+    doc.text(`Version: ${data.version}`);
+    doc.moveDown().fontSize(14).fillColor('#1d6f55').text('Diagnosis');
+    doc.fontSize(11).fillColor('#222').text(data.diagnosis || 'Not specified');
+    doc.moveDown().fontSize(14).fillColor('#1d6f55').text('Treatment');
+    doc.fontSize(11).fillColor('#222').text(data.treatment || 'Not specified');
+    doc.moveDown().fontSize(14).fillColor('#1d6f55').text('Prescriptions');
+    doc.fontSize(11).fillColor('#222').list(data.prescriptions.length ? data.prescriptions : ['None']);
+    doc.moveDown(2).fontSize(9).fillColor('#666').text(`Generated securely by PawSync on ${new Date().toLocaleString()}`);
+    doc.end();
+  });
 }
 
-// GET /api/health-records/[id]/download
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     await connectDB();
-    const user = getUserFromRequest(req);
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
+    const user = getRequestUser(req);
+    if (!hasRole(user, ['pet_owner', 'veterinarian'])) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const { id } = await params;
-    const record = await HealthRecord.findOne({
-      _id: id,
-      ownerId: user.userId,
+    const record = await HealthRecord.findById(id).select('+encryptedData +encryptionIv +encryptionTag');
+    if (!record || !await findAccessiblePet(String(record.petId), user)) {
+      return NextResponse.json({ error: 'Health record not found or access not granted' }, { status: 404 });
+    }
+    const pet = await Pet.findById(record.petId).select('name');
+    const payload = decryptHealthPayload(record);
+    const pdf = await createPdf({
+      petName: pet?.name || 'Pet',
+      date: record.date,
+      diagnosis: payload.diagnosis,
+      treatment: payload.treatment,
+      prescriptions: payload.prescriptions,
+      version: record.version,
     });
-
-    if (!record) return NextResponse.json({ error: 'Health record not found' }, { status: 404 });
-
-    const pet = await Pet.findById(record.petId);
-
-    // Generate a simple HTML report that the browser can print as PDF
-    const html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Health Record - ${pet?.name || 'Pet'}</title>
-        <style>
-          body { font-family: Arial, sans-serif; max-width: 800px; margin: 40px auto; color: #333; }
-          h1 { color: #1D9E75; border-bottom: 2px solid #1D9E75; padding-bottom: 10px; }
-          h2 { color: #378ADD; margin-top: 24px; }
-          .label { font-weight: bold; color: #555; }
-          .value { margin-bottom: 12px; }
-          .footer { margin-top: 40px; font-size: 12px; color: #999; border-top: 1px solid #eee; padding-top: 10px; }
-        </style>
-      </head>
-      <body>
-        <h1>PawSync Health Record 🐾</h1>
-        <h2>Pet Information</h2>
-        <p class="label">Pet Name:</p>
-        <p class="value">${pet?.name || 'Unknown'}</p>
-        <p class="label">Species:</p>
-        <p class="value">${pet?.species || 'Unknown'}</p>
-        <p class="label">Breed:</p>
-        <p class="value">${pet?.breed || 'Unknown'}</p>
-
-        <h2>Health Record Details</h2>
-        <p class="label">Date:</p>
-        <p class="value">${new Date(record.date).toDateString()}</p>
-        <p class="label">Diagnosis:</p>
-        <p class="value">${record.diagnosis || 'None recorded'}</p>
-        <p class="label">Treatment:</p>
-        <p class="value">${record.treatment || 'None recorded'}</p>
-        <p class="label">Prescriptions:</p>
-        <p class="value">${record.prescriptions?.join(', ') || 'None'}</p>
-        <p class="label">Record Version:</p>
-        <p class="value">${record.version}</p>
-
-        <div class="footer">
-          Generated by PawSync on ${new Date().toDateString()} | Record ID: ${record._id}
-        </div>
-      </body>
-      </html>
-    `;
-
-    return new NextResponse(html, {
+    return new NextResponse(new Uint8Array(pdf), {
       headers: {
-        'Content-Type': 'text/html',
-        'Content-Disposition': `attachment; filename="health-record-${id}.html"`,
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="${(pet?.name || 'pet').replace(/[^a-z0-9]/gi, '-')}-health-report.pdf"`,
+        'Cache-Control': 'private, no-store',
       },
     });
   } catch (error) {
-    console.error('Download health record error:', error);
-    return NextResponse.json({ error: 'Something went wrong' }, { status: 500 });
+    console.error('Download health report error:', error);
+    return NextResponse.json({ error: 'Unable to generate health report' }, { status: 500 });
   }
 }

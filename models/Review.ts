@@ -11,6 +11,9 @@ export interface IReview extends Document {
   isModerated: boolean;
   editDeadline: Date;
   createdAt: Date;
+  isFlagged: boolean;
+  moderationReason?: string;
+  removedAt?: Date;
 }
 
 const ReviewSchema = new Schema<IReview>({
@@ -24,6 +27,9 @@ const ReviewSchema = new Schema<IReview>({
   isModerated: { type: Boolean, default: false },
   editDeadline: { type: Date },
   createdAt: { type: Date, default: Date.now },
+  isFlagged: { type: Boolean, default: false },
+  moderationReason: String,
+  removedAt: Date,
 });
 
 ReviewSchema.index({ providerId: 1 });

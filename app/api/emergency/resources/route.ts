@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 
 // GET /api/emergency/resources
-export async function GET(req: NextRequest) {
+export async function GET() {
   const resources = [
     {
       id: 1,

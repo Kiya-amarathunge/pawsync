@@ -1,186 +1,112 @@
 'use client';
-import { useEffect, useState } from 'react';
+
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { Download, FilePlus2, Search, ShieldCheck } from 'lucide-react';
+import DashboardLayout from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
-import DashboardLayout from '@/components/layout/DashboardLayout';
+
+interface Pet { _id: string; name: string }
+interface HealthDocument { _id: string; filename: string }
+interface HealthRecord {
+  _id: string; petId: Pet | string; date: string; diagnosis: string; treatment: string;
+  prescriptions: string[]; documents: HealthDocument[]; version: number; versionHistoryCount: number;
+}
 
 export default function HealthRecordsPage() {
   const { token } = useAuth();
   const { showToast } = useToast();
-  const [records, setRecords] = useState<any[]>([]);
-  const [pets, setPets] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [selectedPet, setSelectedPet] = useState('');
+  const [pets, setPets] = useState<Pet[]>([]);
+  const [records, setRecords] = useState<HealthRecord[]>([]);
+  const [petId, setPetId] = useState('');
   const [search, setSearch] = useState('');
-  const [showModal, setShowModal] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [form, setForm] = useState({ petId: '', diagnosis: '', treatment: '', prescriptions: '', date: '' });
+  const [isLoading, setIsLoading] = useState(true);
+  const [form, setForm] = useState({ diagnosis: '', treatment: '', prescriptions: '', date: '' });
+  const headers = { Authorization: `Bearer ${token}` };
 
-  const fetchData = async () => {
+  const loadRecords = useCallback(async () => {
     if (!token) return;
-    const headers = { Authorization: `Bearer ${token}` };
-    const [petsRes, recordsRes] = await Promise.all([
-      fetch('/api/pets', { headers }),
-      fetch(`/api/health-records${selectedPet ? `?petId=${selectedPet}` : ''}${search ? `&search=${search}` : ''}`, { headers }),
-    ]);
-    const petsData = await petsRes.json();
-    const recordsData = await recordsRes.json();
-    setPets(petsData.pets || []);
-    setRecords(recordsData.records || []);
-    setIsLoading(false);
-  };
-
-  useEffect(() => { fetchData(); }, [token, selectedPet, search]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
+    setIsLoading(true);
+    const query = new URLSearchParams();
+    if (petId) query.set('petId', petId);
+    if (search) query.set('search', search);
     try {
-      const res = await fetch('/api/health-records', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          ...form,
-          prescriptions: form.prescriptions.split(',').map(p => p.trim()).filter(Boolean),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      showToast('Health record added!', 'success');
-      setShowModal(false);
-      setForm({ petId: '', diagnosis: '', treatment: '', prescriptions: '', date: '' });
-      fetchData();
-    } catch (err: any) {
-      showToast(err.message, 'error');
-    } finally {
-      setIsSubmitting(false);
-    }
+      const response = await fetch(`/api/health-records?${query}`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      setRecords(data.records || []);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Unable to load health records', 'error');
+    } finally { setIsLoading(false); }
+  }, [petId, search, showToast, token]);
+
+  useEffect(() => {
+    if (!token) return;
+    fetch('/api/pets', { headers: { Authorization: `Bearer ${token}` } }).then(response => response.json()).then(data => {
+      setPets(data.pets || []);
+      setPetId(current => current || data.pets?.[0]?._id || '');
+    }).catch(() => undefined);
+  }, [token]);
+  useEffect(() => { const timer = setTimeout(() => void loadRecords(), 250); return () => clearTimeout(timer); }, [loadRecords]);
+
+  const createRecord = async (event: FormEvent) => {
+    event.preventDefault();
+    const response = await fetch('/api/health-records', {
+      method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...form, petId, prescriptions: form.prescriptions.split(',').map(value => value.trim()).filter(Boolean) }),
+    });
+    const data = await response.json();
+    showToast(response.ok ? data.message : data.error, response.ok ? 'success' : 'error');
+    if (response.ok) { setForm({ diagnosis: '', treatment: '', prescriptions: '', date: '' }); await loadRecords(); }
   };
 
-  return (
-    <DashboardLayout>
-      <div className="animate-fadeIn">
-        <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div>
-            <h1 className="page-title">Health Records</h1>
-            <p className="page-subtitle">Track your pet's medical history</p>
-          </div>
-          <button className="btn btn-primary" onClick={() => setShowModal(true)}>+ Add Record</button>
+  const uploadDocument = async (recordId: string, file: File) => {
+    const body = new FormData(); body.append('file', file);
+    const response = await fetch(`/api/health-records/${recordId}/documents`, { method: 'POST', headers, body });
+    const data = await response.json();
+    showToast(response.ok ? data.message : data.error, response.ok ? 'success' : 'error');
+    if (response.ok) await loadRecords();
+  };
+
+  const authenticatedDownload = async (url: string, filename: string) => {
+    const response = await fetch(url, { headers });
+    if (!response.ok) return showToast('Unable to download file', 'error');
+    const objectUrl = URL.createObjectURL(await response.blob());
+    const anchor = document.createElement('a'); anchor.href = objectUrl; anchor.download = filename; anchor.click(); URL.revokeObjectURL(objectUrl);
+  };
+
+  const petName = (record: HealthRecord) => typeof record.petId === 'object' ? record.petId.name : pets.find(pet => pet._id === record.petId)?.name || 'Pet';
+
+  return <DashboardLayout>
+    <div style={{ marginBottom: 24 }}><h1 className="page-title">Health records</h1><p className="page-subtitle">Encrypted medical history, documents and reports</p></div>
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 340px) minmax(0, 1fr)', gap: 20, alignItems: 'start' }}>
+      <form onSubmit={createRecord} className="card" style={{ padding: 20, display: 'grid', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><ShieldCheck size={19} color="var(--primary)" /><h2 style={{ fontSize: 17 }}>New encrypted record</h2></div>
+        <select className="input" value={petId} onChange={event => setPetId(event.target.value)} required>{pets.map(pet => <option key={pet._id} value={pet._id}>{pet.name}</option>)}</select>
+        <input className="input" type="date" value={form.date} onChange={event => setForm(value => ({ ...value, date: event.target.value }))} />
+        <textarea className="input" placeholder="Diagnosis" value={form.diagnosis} onChange={event => setForm(value => ({ ...value, diagnosis: event.target.value }))} />
+        <textarea className="input" placeholder="Treatment and observations" value={form.treatment} onChange={event => setForm(value => ({ ...value, treatment: event.target.value }))} />
+        <input className="input" placeholder="Prescriptions, separated by commas" value={form.prescriptions} onChange={event => setForm(value => ({ ...value, prescriptions: event.target.value }))} />
+        <button className="btn btn-primary" disabled={!petId}>Add record</button>
+      </form>
+
+      <div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(150px, 220px)', gap: 10, marginBottom: 16 }}>
+          <label style={{ position: 'relative' }}><Search size={17} style={{ position: 'absolute', left: 12, top: 13, color: 'var(--text-muted)' }} /><input className="input" style={{ paddingLeft: 38 }} placeholder="Search diagnosis, treatment or prescription" value={search} onChange={event => setSearch(event.target.value)} /></label>
+          <select className="input" value={petId} onChange={event => setPetId(event.target.value)}><option value="">All pets</option>{pets.map(pet => <option key={pet._id} value={pet._id}>{pet.name}</option>)}</select>
         </div>
-
-        {/* Filters */}
-        <div style={{ display: 'flex', gap: 12, marginBottom: 24 }}>
-          <select
-            className="input"
-            style={{ maxWidth: 200 }}
-            value={selectedPet}
-            onChange={e => setSelectedPet(e.target.value)}
-          >
-            <option value="">All Pets</option>
-            {pets.map(pet => <option key={pet._id} value={pet._id}>{pet.name}</option>)}
-          </select>
-          <input
-            className="input"
-            style={{ maxWidth: 300 }}
-            placeholder="🔍 Search diagnosis or treatment..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-        </div>
-
-        {isLoading ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {[1, 2, 3].map(i => <div key={i} className="skeleton" style={{ height: 100, borderRadius: 'var(--radius-lg)' }} />)}
-          </div>
-        ) : records.length === 0 ? (
-          <div className="card" style={{ padding: 60, textAlign: 'center' }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>📋</div>
-            <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>No health records yet</h2>
-            <p style={{ color: 'var(--text-secondary)', marginBottom: 24 }}>Start tracking your pet's medical history</p>
-            <button className="btn btn-primary" onClick={() => setShowModal(true)}>Add First Record</button>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {records.map(record => (
-              <div key={record._id} className="card" style={{ padding: 24 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div style={{ width: 44, height: 44, borderRadius: 'var(--radius-md)', background: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>📋</div>
-                    <div>
-                      <h3 style={{ fontSize: 15, fontWeight: 600 }}>{record.diagnosis || 'General Checkup'}</h3>
-                      <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>{new Date(record.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <span className="badge badge-gray">v{record.version}</span>
-                    <a
-                      href={`/api/health-records/${record._id}/download`}
-                      className="btn btn-outline btn-sm"
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      ⬇ Download
-                    </a>
-                  </div>
-                </div>
-                {record.treatment && (
-                  <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 8 }}>
-                    <strong>Treatment:</strong> {record.treatment}
-                  </p>
-                )}
-                {record.prescriptions?.length > 0 && (
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {record.prescriptions.map((p: string) => (
-                      <span key={p} className="badge badge-blue">💊 {p}</span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Add Record Modal */}
-        {showModal && (
-          <div className="modal-overlay" onClick={() => setShowModal(false)}>
-            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
-              <h2 className="modal-title">Add Health Record</h2>
-              <p className="modal-subtitle">Record your pet's medical information</p>
-              <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                <div className="input-group">
-                  <label className="input-label">Pet *</label>
-                  <select className="input" value={form.petId} onChange={e => setForm(p => ({ ...p, petId: e.target.value }))} required>
-                    <option value="">Select a pet</option>
-                    {pets.map(pet => <option key={pet._id} value={pet._id}>{pet.name}</option>)}
-                  </select>
-                </div>
-                <div className="input-group">
-                  <label className="input-label">Date</label>
-                  <input className="input" type="date" value={form.date} onChange={e => setForm(p => ({ ...p, date: e.target.value }))} />
-                </div>
-                <div className="input-group">
-                  <label className="input-label">Diagnosis</label>
-                  <input className="input" placeholder="e.g. Mild fever" value={form.diagnosis} onChange={e => setForm(p => ({ ...p, diagnosis: e.target.value }))} />
-                </div>
-                <div className="input-group">
-                  <label className="input-label">Treatment</label>
-                  <input className="input" placeholder="e.g. Rest and hydration" value={form.treatment} onChange={e => setForm(p => ({ ...p, treatment: e.target.value }))} />
-                </div>
-                <div className="input-group">
-                  <label className="input-label">Prescriptions (comma separated)</label>
-                  <input className="input" placeholder="e.g. Paracetamol 250mg, Vitamin C" value={form.prescriptions} onChange={e => setForm(p => ({ ...p, prescriptions: e.target.value }))} />
-                </div>
-                <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
-                  <button type="button" className="btn btn-outline" style={{ flex: 1 }} onClick={() => setShowModal(false)}>Cancel</button>
-                  <button type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={isSubmitting}>
-                    {isSubmitting ? <><div className="spinner" />Saving...</> : 'Save Record'}
-                  </button>
-                </div>
-              </form>
+        <div style={{ display: 'grid', gap: 12 }}>
+          {isLoading ? [1, 2, 3].map(value => <div key={value} className="skeleton" style={{ height: 130 }} />) : records.length === 0 ? <div className="empty-state"><p>No matching health records.</p></div> : records.map(record => <article key={record._id} className="card" style={{ padding: 20, borderLeft: '3px solid var(--primary)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'start' }}><div><div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}><h3 style={{ fontSize: 17 }}>{record.diagnosis || 'General health update'}</h3><span className="badge badge-green">v{record.version}</span></div><p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 3 }}>{petName(record)} · {new Date(record.date).toLocaleDateString()} · {record.versionHistoryCount} secured version{record.versionHistoryCount === 1 ? '' : 's'}</p></div><button className="btn btn-secondary btn-sm" onClick={() => void authenticatedDownload(`/api/health-records/${record._id}/download`, `${petName(record)}-health-report.pdf`)}><Download size={16} /> PDF</button></div>
+            {record.treatment && <p style={{ marginTop: 12, fontSize: 14 }}>{record.treatment}</p>}
+            {record.prescriptions?.length > 0 && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>{record.prescriptions.map(item => <span className="badge badge-gray" key={item}>{item}</span>)}</div>}
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
+              <label className="btn btn-secondary btn-sm"><FilePlus2 size={16} /> Attach document<input hidden type="file" accept="application/pdf,image/jpeg,image/png" onChange={event => event.target.files?.[0] && void uploadDocument(record._id, event.target.files[0])} /></label>
+              {record.documents?.map(file => <button key={file._id} className="btn btn-ghost btn-sm" onClick={() => void authenticatedDownload(`/api/health-records/${record._id}/documents/${file._id}`, file.filename)}><Download size={15} /> {file.filename}</button>)}
             </div>
-          </div>
-        )}
+          </article>)}
+        </div>
       </div>
-    </DashboardLayout>
-  );
+    </div>
+  </DashboardLayout>;
 }

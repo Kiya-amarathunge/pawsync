@@ -4,6 +4,21 @@ import User from '@/models/User';
 import { verifyToken } from '@/lib/jwt';
 import { updateProfileSchema } from '@/lib/validations/auth';
 
+export async function GET(req: NextRequest) {
+  try {
+    await connectDB();
+    const authHeader = req.headers.get('authorization');
+    const decoded = authHeader?.startsWith('Bearer ') ? verifyToken(authHeader.slice(7)) : null;
+    if (!decoded) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const user = await User.findById(decoded.userId).select('name email phoneNumber role registrationDate');
+    if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    return NextResponse.json({ user });
+  } catch (error) {
+    console.error('Get profile error:', error);
+    return NextResponse.json({ error: 'Unable to load profile' }, { status: 500 });
+  }
+}
+
 export async function PUT(req: NextRequest) {
   try {
     await connectDB();

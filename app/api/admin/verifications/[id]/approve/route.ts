@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
 import User from '@/models/User';
 import AuditLog from '@/models/AuditLog';
+import Veterinarian from '@/models/Veterinarian';
+import ServiceProvider from '@/models/ServiceProvider';
 import { verifyToken } from '@/lib/jwt';
-import { sendVerificationEmail } from '@/lib/mailer';
 import nodemailer from 'nodemailer';
 
 function getAdminFromRequest(req: NextRequest) {
@@ -25,9 +26,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const { id } = await params;
     const user = await User.findById(id);
     if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    if (!user.isVerified) return NextResponse.json({ error: 'Provider must verify their email before approval' }, { status: 409 });
 
     user.isActive = true;
+    user.verificationStatus = 'approved';
     await user.save();
+    if (user.role === 'veterinarian') {
+      await Veterinarian.findOneAndUpdate({ vetId: user._id }, { $set: { isVerified: true } });
+    } else if (user.role === 'service_provider') {
+      await ServiceProvider.findOneAndUpdate({ providerId: user._id }, { $set: { isVerified: true } });
+    }
 
     // Send approval email
     const transporter = nodemailer.createTransport({

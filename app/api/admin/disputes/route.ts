@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
 import Appointment from '@/models/Appointment';
-import Message from '@/models/Message';
 import { verifyToken } from '@/lib/jwt';
 
 function getAdminFromRequest(req: NextRequest) {

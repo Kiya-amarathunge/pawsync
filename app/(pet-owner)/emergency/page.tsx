@@ -1,102 +1,35 @@
 'use client';
-import { useEffect, useState } from 'react';
+
+import { useCallback, useEffect, useState } from 'react';
+import { BedDouble, BookOpen, MapPin, Navigation, PhoneCall, ShieldAlert, X } from 'lucide-react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
+import { useAuth } from '@/context/AuthContext';
+import { useToast } from '@/context/ToastContext';
+
+interface Clinic { _id: string; name: string; address: string; phone: string; location: { lat: number; lng: number }; is24Hours: boolean; distance: number; availabilityStatus: 'available' | 'busy' | 'call-to-confirm'; specializations: string[] }
+interface Pet { _id: string; name: string }
+interface Boarding { providerId: { _id: string; name: string; phoneNumber: string }; businessName: string; pricing: Array<{ service: string; price: number }> }
+interface Resource { id: string; title: string; content: string }
 
 export default function EmergencyPage() {
-  const [services, setServices] = useState<any[]>([]);
-  const [resources, setResources] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const { token } = useAuth(); const { showToast } = useToast();
+  const [clinics, setClinics] = useState<Clinic[]>([]); const [pets, setPets] = useState<Pet[]>([]); const [resources, setResources] = useState<Resource[]>([]); const [boarding, setBoarding] = useState<Boarding[]>([]);
+  const [selectedClinic, setSelectedClinic] = useState<Clinic | null>(null); const [petId, setPetId] = useState(''); const [reason, setReason] = useState(''); const [shareRecords, setShareRecords] = useState(true); const [coordinates, setCoordinates] = useState({ lat: 6.9271, lng: 79.8612 }); const [locating, setLocating] = useState(true);
+  const [boardingForm, setBoardingForm] = useState({ providerId: '', petId: '', dateTime: '', notes: '' }); const headers = { Authorization: `Bearer ${token}` };
 
+  const loadClinics = useCallback(async (lat: number, lng: number) => { const response = await fetch(`/api/emergency/services?lat=${lat}&lng=${lng}`); const data = await response.json(); setClinics(data.services || []); }, []);
   useEffect(() => {
-    Promise.all([
-      fetch('/api/emergency/services?lat=6.9271&lng=79.8612').then(r => r.json()),
-      fetch('/api/emergency/resources').then(r => r.json()),
-    ]).then(([svcData, resData]) => {
-      setServices(svcData.services || []);
-      setResources(resData.resources || []);
-      setIsLoading(false);
-    });
-  }, []);
+    Promise.all([fetch('/api/emergency/resources').then(response => response.json()), fetch('/api/emergency/boarding').then(response => response.json()), token ? fetch('/api/pets', { headers: { Authorization: `Bearer ${token}` } }).then(response => response.json()) : Promise.resolve({ pets: [] })]).then(([resourceData, boardingData, petData]) => { setResources(resourceData.resources || []); setBoarding(boardingData.boarding || []); setPets(petData.pets || []); });
+    navigator.geolocation.getCurrentPosition(position => { const next = { lat: position.coords.latitude, lng: position.coords.longitude }; setCoordinates(next); void loadClinics(next.lat, next.lng); setLocating(false); }, () => { void loadClinics(coordinates.lat, coordinates.lng); setLocating(false); }, { enableHighAccuracy: true, timeout: 8000 });
+  }, [loadClinics, token]);
 
-  return (
-    <DashboardLayout>
-      <div className="animate-fadeIn">
-        {/* Emergency Banner */}
-        <div style={{
-          background: 'linear-gradient(135deg, #dc2626, #b91c1c)',
-          borderRadius: 'var(--radius-xl)',
-          padding: '32px',
-          color: 'white',
-          marginBottom: 32,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 24,
-        }}>
-          <div style={{ fontSize: 64 }}>🚨</div>
-          <div>
-            <h1 style={{ fontSize: 32, fontWeight: 700, marginBottom: 8 }}>Emergency Services</h1>
-            <p style={{ fontSize: 16, opacity: 0.9 }}>Find immediate veterinary care for your pet</p>
-            <p style={{ fontSize: 14, opacity: 0.7, marginTop: 8 }}>
-              If your pet is in immediate danger, call the nearest emergency clinic directly
-            </p>
-          </div>
-        </div>
+  const contactClinic = async () => { if (!selectedClinic) return; const response = await fetch('/api/emergency/contact', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ clinicId: selectedClinic._id, petId: petId || undefined, reason, shareRecords }) }); const data = await response.json(); if (!response.ok) return showToast(data.error, 'error'); showToast(data.recordsShared ? 'Contact logged and records shared' : 'Emergency contact logged', 'success'); window.location.href = `tel:${data.phone}`; };
+  const requestBoarding = async () => { const response = await fetch('/api/emergency/boarding', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...boardingForm, dateTime: new Date(boardingForm.dateTime).toISOString() }) }); const data = await response.json(); showToast(response.ok ? data.message : data.error, response.ok ? 'success' : 'error'); };
 
-        <div className="grid-2">
-          {/* Nearest clinics */}
-          <div className="card" style={{ padding: 24 }}>
-            <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20 }}>🏥 Nearest Emergency Clinics</h2>
-            {isLoading ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {[1, 2, 3].map(i => <div key={i} className="skeleton" style={{ height: 80 }} />)}
-              </div>
-            ) : services.length === 0 ? (
-              <div className="empty-state">
-                <div className="empty-state-icon">🏥</div>
-                <p className="empty-state-title">No clinics registered yet</p>
-                <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>Contact your local vet directly</p>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {services.map((svc: any) => (
-                  <div key={svc._id} style={{
-                    padding: '16px', borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--border)', background: 'var(--surface)',
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                      <div>
-                        <h3 style={{ fontSize: 15, fontWeight: 600 }}>{svc.name}</h3>
-                        <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>{svc.address}</p>
-                        <p style={{ fontSize: 13, color: 'var(--primary)', fontWeight: 600, marginTop: 4 }}>📞 {svc.phone}</p>
-                      </div>
-                      <div style={{ textAlign: 'right' }}>
-                        {svc.is24Hours && <span className="badge badge-green">24/7</span>}
-                        {svc.distance && <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>{svc.distance} km away</p>}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* First aid resources */}
-          <div className="card" style={{ padding: 24 }}>
-            <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20 }}>🩺 First Aid Guide</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {resources.map((res: any) => (
-                <div key={res.id} style={{
-                  padding: '16px', borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border)', background: 'var(--surface)',
-                }}>
-                  <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>{res.title}</h3>
-                  <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>{res.content}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-    </DashboardLayout>
-  );
+  return <DashboardLayout><section style={{ background: '#b42318', color: 'white', padding: 24, marginBottom: 20 }}><div style={{ display: 'flex', gap: 15, alignItems: 'center' }}><ShieldAlert size={42} /><div><h1 style={{ fontSize: 28 }}>Emergency Services</h1><p>For immediate danger, call the nearest clinic now. Availability must be confirmed directly.</p></div></div></section>
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.35fr) minmax(280px, .65fr)', gap: 18, alignItems: 'start' }}><main style={{ display: 'grid', gap: 14 }}><div style={{ display: 'flex', justifyContent: 'space-between' }}><h2 style={{ fontSize: 18 }}>Nearest emergency clinics</h2><button className="btn btn-secondary btn-sm" onClick={() => { setLocating(true); navigator.geolocation.getCurrentPosition(position => { setCoordinates({ lat: position.coords.latitude, lng: position.coords.longitude }); void loadClinics(position.coords.latitude, position.coords.longitude); setLocating(false); }); }}><MapPin size={16} /> {locating ? 'Locating...' : 'Refresh location'}</button></div>{clinics.map(clinic => <article key={clinic._id} className="card" style={{ padding: 17 }}><div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}><div><h3 style={{ fontSize: 16 }}>{clinic.name}</h3><p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{clinic.address}</p><p style={{ fontSize: 12, marginTop: 4 }}>{clinic.distance} km away · {clinic.is24Hours ? 'Open 24/7' : 'Limited hours'}</p></div><span className={`badge ${clinic.availabilityStatus === 'available' ? 'badge-green' : clinic.availabilityStatus === 'busy' ? 'badge-red' : 'badge-gray'}`}>{clinic.availabilityStatus.replace('-', ' ')}</span></div><div style={{ display: 'flex', gap: 8, marginTop: 13 }}><button className="btn btn-danger btn-sm" onClick={() => setSelectedClinic(clinic)}><PhoneCall size={16} /> Call {clinic.phone}</button><a className="btn btn-secondary btn-sm" target="_blank" rel="noreferrer" href={`https://www.google.com/maps/dir/?api=1&origin=${coordinates.lat},${coordinates.lng}&destination=${clinic.location.lat},${clinic.location.lng}`}><Navigation size={16} /> Directions</a></div></article>)}{clinics.length === 0 && !locating && <div className="empty-state"><p>No verified emergency clinics are registered nearby. Contact your regular veterinarian or local emergency hotline.</p></div>}
+      <section className="card" style={{ padding: 18 }}><h2 style={{ fontSize: 17, display: 'flex', gap: 8, marginBottom: 12 }}><BedDouble size={19} /> Emergency boarding</h2><div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 9 }}><select className="input" value={boardingForm.providerId} onChange={event => setBoardingForm(value => ({ ...value, providerId: event.target.value }))}><option value="">Boarding provider</option>{boarding.map(item => <option key={item.providerId._id} value={item.providerId._id}>{item.businessName}</option>)}</select><select className="input" value={boardingForm.petId} onChange={event => setBoardingForm(value => ({ ...value, petId: event.target.value }))}><option value="">Pet</option>{pets.map(pet => <option key={pet._id} value={pet._id}>{pet.name}</option>)}</select><input className="input" type="datetime-local" value={boardingForm.dateTime} onChange={event => setBoardingForm(value => ({ ...value, dateTime: event.target.value }))} /><input className="input" placeholder="Urgent circumstances" value={boardingForm.notes} onChange={event => setBoardingForm(value => ({ ...value, notes: event.target.value }))} /></div><button className="btn btn-primary" style={{ marginTop: 10 }} disabled={!boardingForm.providerId || !boardingForm.petId || !boardingForm.dateTime} onClick={() => void requestBoarding()}>Request boarding</button></section></main>
+      <aside className="card" style={{ padding: 18 }}><h2 style={{ fontSize: 17, display: 'flex', gap: 8, marginBottom: 12 }}><BookOpen size={18} /> First aid and preparedness</h2>{resources.map(resource => <details key={resource.id} style={{ padding: '10px 0', borderBottom: '1px solid var(--border)' }}><summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>{resource.title}</summary><p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 7, lineHeight: 1.5 }}>{resource.content}</p></details>)}</aside></div>
+    {selectedClinic && <div className="modal-overlay" onClick={() => setSelectedClinic(null)}><div className="modal" onClick={event => event.stopPropagation()}><div style={{ display: 'flex', justifyContent: 'space-between' }}><h2 className="modal-title">Contact {selectedClinic.name}</h2><button className="btn btn-ghost btn-sm" onClick={() => setSelectedClinic(null)}><X size={17} /></button></div><select className="input" value={petId} onChange={event => setPetId(event.target.value)}><option value="">Pet (optional)</option>{pets.map(pet => <option key={pet._id} value={pet._id}>{pet.name}</option>)}</select><textarea className="input" style={{ marginTop: 10 }} placeholder="Brief reason for emergency" value={reason} onChange={event => setReason(event.target.value)} /><label style={{ display: 'flex', gap: 8, marginTop: 10 }}><input type="checkbox" checked={shareRecords} onChange={event => setShareRecords(event.target.checked)} /> Share this pet&apos;s health records when the clinic has a linked verified veterinarian</label><button className="btn btn-danger btn-full" style={{ marginTop: 14 }} onClick={() => void contactClinic()}><PhoneCall size={17} /> Log and call now</button></div></div>}
+  </DashboardLayout>;
 }

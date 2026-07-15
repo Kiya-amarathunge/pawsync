@@ -49,11 +49,11 @@ export async function PATCH(
 
     if (type === 'post') {
       await ForumPost.findByIdAndUpdate(id, {
-        $set: { isModerated: true },
+        $set: { isModerated: true, removedAt: new Date(), isFlagged: false },
       });
     } else if (type === 'review') {
       await Review.findByIdAndUpdate(id, {
-        $set: { isModerated: true },
+        $set: { isModerated: true, removedAt: new Date(), isFlagged: false },
       });
     } else {
       return NextResponse.json(

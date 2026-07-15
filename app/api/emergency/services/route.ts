@@ -9,6 +9,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = req.nextUrl;
     const lat = parseFloat(searchParams.get('lat') || '6.9271');
     const lng = parseFloat(searchParams.get('lng') || '79.8612');
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return NextResponse.json({ error: 'Valid coordinates are required' }, { status: 400 });
 
     // Get all emergency contacts and sort by distance
     const contacts = await EmergencyContact.find({ isVerified: true });
@@ -24,7 +25,8 @@ export async function GET(req: NextRequest) {
           Math.sin(dLng / 2) *
           Math.sin(dLng / 2);
       const distance = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      return { ...c.toObject(), distance: Math.round(distance * 10) / 10 };
+      const availabilityIsFresh = c.availabilityUpdatedAt && Date.now() - c.availabilityUpdatedAt.getTime() < 30 * 60 * 1000;
+      return { ...c.toObject(), distance: Math.round(distance * 10) / 10, availabilityStatus: availabilityIsFresh ? (c.isAvailable ? 'available' : 'busy') : 'call-to-confirm' };
     });
 
     withDistance.sort((a, b) => a.distance - b.distance);

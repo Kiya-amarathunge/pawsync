@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
       role,
       isVerified: false,
       isActive,
+      verificationStatus: role === 'pet_owner' ? 'approved' : 'pending',
     });
 if (role === 'veterinarian' && licenseNumber) {
   await Veterinarian.create({
@@ -62,10 +63,8 @@ if (role === 'service_provider' && businessName) {
   });
 }
 
-    if (role === 'pet_owner') {
-      const token = signAccessToken({ userId: user._id, purpose: 'verify-email' });
-      await sendVerificationEmail(email, token);
-    }
+    const token = signAccessToken({ userId: String(user._id), purpose: 'verify-email' }, '24h');
+    await sendVerificationEmail(email, token);
 
     if (role === 'veterinarian' || role === 'service_provider') {
       await sendProviderPendingEmail(email, name);
@@ -76,7 +75,7 @@ if (role === 'service_provider' && businessName) {
         message:
           role === 'pet_owner'
             ? 'Account created! Please check your email to verify your account.'
-            : 'Application received! We will review your credentials and contact you soon.',
+            : 'Application received! Verify your email while we review your credentials.',
       },
       { status: 201 }
     );

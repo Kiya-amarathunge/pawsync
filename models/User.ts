@@ -11,6 +11,22 @@ export interface IUser extends Document {
   isVerified: boolean;
   isActive: boolean;
   isSuspended: boolean;
+  lastLoginAt?: Date;
+  favoriteProviders: mongoose.Types.ObjectId[];
+  notificationPreferences: {
+    inApp: boolean;
+    email: boolean;
+    sms: boolean;
+    push: boolean;
+    appointmentReminders: boolean;
+    healthReminders: boolean;
+    messages: boolean;
+    reviews: boolean;
+    announcements: boolean;
+  };
+  adminRole?: 'super_admin' | 'content_moderator' | 'verification_specialist';
+  verificationStatus?: 'pending' | 'more_info_requested' | 'approved' | 'rejected';
+  verificationNote?: string;
   comparePassword(candidatePassword: string): Promise<boolean>;
 }
 
@@ -57,6 +73,22 @@ const UserSchema = new Schema<IUser>({
     type: Boolean,
     default: false,
   },
+  lastLoginAt: Date,
+  favoriteProviders: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+  notificationPreferences: {
+    inApp: { type: Boolean, default: true },
+    email: { type: Boolean, default: true },
+    sms: { type: Boolean, default: false },
+    push: { type: Boolean, default: false },
+    appointmentReminders: { type: Boolean, default: true },
+    healthReminders: { type: Boolean, default: true },
+    messages: { type: Boolean, default: true },
+    reviews: { type: Boolean, default: true },
+    announcements: { type: Boolean, default: true },
+  },
+  adminRole: { type: String, enum: ['super_admin', 'content_moderator', 'verification_specialist'] },
+  verificationStatus: { type: String, enum: ['pending', 'more_info_requested', 'approved', 'rejected'], default: 'pending' },
+  verificationNote: String,
 });
 
 /**

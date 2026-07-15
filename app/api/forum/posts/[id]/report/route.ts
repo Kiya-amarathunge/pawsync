@@ -22,7 +22,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const post = await ForumPost.findByIdAndUpdate(
       id,
-      { $set: { isFlagged: true } },
+      { $set: { isFlagged: true, moderationReason: String(reason || 'Reported by user').slice(0, 500) } },
       { new: true }
     );
 

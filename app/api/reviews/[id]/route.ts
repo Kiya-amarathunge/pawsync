@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
 import Review from '@/models/Review';
 import { verifyToken } from '@/lib/jwt';
+import { moderateText } from '@/lib/content-moderation';
 
 function getUserFromRequest(req: NextRequest) {
   const authHeader = req.headers.get('authorization');
@@ -34,6 +35,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
     if (comment && comment.length < 50) {
       return NextResponse.json({ error: 'Review comment must be at least 50 characters' }, { status: 400 });
+    }
+    if (comment) {
+      const moderation = moderateText(comment);
+      if (!moderation.allowed) return NextResponse.json({ error: `Review requires revision: ${moderation.reasons.join(', ')}` }, { status: 422 });
     }
 
     if (rating) review.rating = rating;

@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
     const period = req.nextUrl.searchParams.get('period') || 'monthly';
 
     const today = new Date();
-    let startDate = new Date();
+    const startDate = new Date();
 
     if (period === 'daily') {
       startDate.setDate(today.getDate() - 7);

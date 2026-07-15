@@ -11,6 +11,14 @@ export interface IAppointment extends Document {
   notes: string;
   price: number;
   createdAt: Date;
+  rescheduleHistory: { previousDateTime: Date; newDateTime: Date; requestedBy: mongoose.Types.ObjectId; changedAt: Date }[];
+  reminder24hSent: boolean;
+  reminder2hSent: boolean;
+  statusUpdatedAt?: Date;
+  reviewRequested: boolean;
+  isEmergency: boolean;
+  refundStatus?: 'not_requested' | 'approved' | 'processed';
+  refundAmount?: number;
 }
 
 const AppointmentSchema = new Schema<IAppointment>({
@@ -32,10 +40,24 @@ const AppointmentSchema = new Schema<IAppointment>({
   notes: { type: String },
   price: { type: Number },
   createdAt: { type: Date, default: Date.now },
+  rescheduleHistory: [{
+    previousDateTime: { type: Date, required: true },
+    newDateTime: { type: Date, required: true },
+    requestedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    changedAt: { type: Date, default: Date.now },
+  }],
+  reminder24hSent: { type: Boolean, default: false },
+  reminder2hSent: { type: Boolean, default: false },
+  statusUpdatedAt: Date,
+  reviewRequested: { type: Boolean, default: false },
+  isEmergency: { type: Boolean, default: false },
+  refundStatus: { type: String, enum: ['not_requested', 'approved', 'processed'], default: 'not_requested' },
+  refundAmount: Number,
 });
 
 AppointmentSchema.index({ providerId: 1, status: 1 });
 AppointmentSchema.index({ ownerId: 1 });
 AppointmentSchema.index({ petId: 1, dateTime: -1 });
+AppointmentSchema.index({ providerId: 1, dateTime: 1 });
 
 export default mongoose.models.Appointment || mongoose.model<IAppointment>('Appointment', AppointmentSchema);
