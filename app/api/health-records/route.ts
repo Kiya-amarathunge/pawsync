@@ -1,84 +1,107 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import connectDB from '@/lib/db';
 import HealthRecord from '@/models/HealthRecord';
-import '@/models/User';
-import '@/models/Pet';
-import { verifyToken } from '@/lib/jwt';
-import crypto from 'crypto';
+import { getRequestUser, hasRole } from '@/lib/request-auth';
+import { findAccessiblePet } from '@/lib/pet-access';
+import { decryptHealthPayload, encryptHealthPayload, type HealthPayload } from '@/lib/health-encryption';
 
-function getUserFromRequest(req: NextRequest) {
-  const authHeader = req.headers.get('authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
-  const token = authHeader.split(' ')[1];
-  return verifyToken(token);
+const recordSchema = z.object({
+  petId: z.string().min(1),
+  diagnosis: z.string().trim().max(2000).optional().default(''),
+  treatment: z.string().trim().max(4000).optional().default(''),
+  prescriptions: z.array(z.string().trim().max(500)).max(50).optional().default([]),
+  medicationSchedule: z.array(z.object({
+    medication: z.string().trim().min(1).max(120),
+    dosage: z.string().trim().max(120),
+    frequency: z.string().trim().max(120),
+    startDate: z.string().optional(),
+    endDate: z.string().optional(),
+  })).optional().default([]),
+  date: z.string().datetime().or(z.string().date()).optional(),
+});
+
+function serializeRecord(record: Record<string, unknown>, payload: HealthPayload) {
+  const { encryptedData, encryptionIv, encryptionTag, versionHistory, ...safe } = record;
+  void encryptedData;
+  void encryptionIv;
+  void encryptionTag;
+  return { ...safe, ...payload, versionHistoryCount: Array.isArray(versionHistory) ? versionHistory.length : 0 };
 }
 
-// GET /api/health-records?petId=...
 export async function GET(req: NextRequest) {
   try {
     await connectDB();
-    const user = getUserFromRequest(req);
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-    const { searchParams } = req.nextUrl;
-    const petId = searchParams.get('petId');
-    const search = searchParams.get('search');
-    const page = parseInt(searchParams.get('page') || '1');
+    const user = getRequestUser(req);
+    if (!hasRole(user, ['pet_owner', 'veterinarian'])) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const petId = req.nextUrl.searchParams.get('petId');
+    const search = req.nextUrl.searchParams.get('search')?.trim().toLowerCase();
+    const page = Math.max(1, Number(req.nextUrl.searchParams.get('page')) || 1);
     const limit = 20;
-
-    const filter: any = { ownerId: user.userId };
-    if (petId) filter.petId = petId;
-    if (search) {
-      filter.$or = [
-        { diagnosis: { $regex: search, $options: 'i' } },
-        { treatment: { $regex: search, $options: 'i' } },
-      ];
+    if (petId && !await findAccessiblePet(petId, user)) {
+      return NextResponse.json({ error: 'Pet not found or access not granted' }, { status: 404 });
     }
 
-    const records = await HealthRecord.find(filter)
-      .sort({ date: -1 })
-      .skip((page - 1) * limit)
-      .limit(limit);
-
-    const total = await HealthRecord.countDocuments(filter);
-
-    return NextResponse.json({ records, total, page, pages: Math.ceil(total / limit) });
+    const filter = user.role === 'pet_owner'
+      ? { ownerId: user.userId, ...(petId ? { petId } : {}) }
+      : petId
+        ? { petId }
+        : { _id: null };
+    const encryptedRecords = await HealthRecord.find(filter)
+      .select('+encryptedData +encryptionIv +encryptionTag')
+      .sort({ date: -1 });
+    const records = encryptedRecords.map(record => {
+      const payload = decryptHealthPayload(record);
+      return serializeRecord(record.toObject(), payload);
+    }).filter(record => !search || JSON.stringify(record).toLowerCase().includes(search));
+    const start = (page - 1) * limit;
+    return NextResponse.json({
+      records: records.slice(start, start + limit),
+      total: records.length,
+      page,
+      pages: Math.ceil(records.length / limit),
+    });
   } catch (error) {
     console.error('Get health records error:', error);
-    return NextResponse.json({ error: 'Something went wrong' }, { status: 500 });
+    return NextResponse.json({ error: 'Unable to load health records' }, { status: 500 });
   }
 }
 
-// POST /api/health-records
 export async function POST(req: NextRequest) {
   try {
     await connectDB();
-    const user = getUserFromRequest(req);
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-    const body = await req.json();
-    const { petId, diagnosis, treatment, prescriptions, date } = body;
-
-    if (!petId) return NextResponse.json({ error: 'Pet ID is required' }, { status: 400 });
-
-    const content = JSON.stringify({ petId, diagnosis, treatment, prescriptions });
-    const checksum = crypto.createHash('sha256').update(content).digest('hex');
-
+    const user = getRequestUser(req);
+    if (!hasRole(user, ['pet_owner', 'veterinarian'])) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const parsed = recordSchema.safeParse(await req.json());
+    if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
+    const pet = await findAccessiblePet(parsed.data.petId, user);
+    if (!pet) return NextResponse.json({ error: 'Pet not found or access not granted' }, { status: 404 });
+    const payload: HealthPayload = {
+      diagnosis: parsed.data.diagnosis,
+      treatment: parsed.data.treatment,
+      prescriptions: parsed.data.prescriptions,
+      medicationSchedule: parsed.data.medicationSchedule,
+    };
+    const encrypted = encryptHealthPayload(payload);
     const record = await HealthRecord.create({
-      petId,
-      ownerId: user.userId,
-      date: date ? new Date(date) : new Date(),
-      diagnosis,
-      treatment,
-      prescriptions: prescriptions || [],
+      petId: pet._id,
+      ownerId: pet.ownerId,
+      date: parsed.data.date ? new Date(parsed.data.date) : new Date(),
       addedBy: user.userId,
       version: 1,
-      checksum,
+      ...encrypted,
+      versionHistory: [{ version: 1, ...encrypted, changedBy: user.userId, changedAt: new Date() }],
     });
-
-    return NextResponse.json({ message: 'Health record created successfully', record }, { status: 201 });
+    return NextResponse.json({
+      message: 'Encrypted health record created successfully',
+      record: serializeRecord(record.toObject(), payload),
+    }, { status: 201 });
   } catch (error) {
     console.error('Create health record error:', error);
-    return NextResponse.json({ error: 'Something went wrong' }, { status: 500 });
+    return NextResponse.json({ error: 'Unable to create health record' }, { status: 500 });
   }
 }

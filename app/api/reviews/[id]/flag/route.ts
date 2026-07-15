@@ -18,9 +18,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { id } = await params;
+    const { reason } = await req.json().catch(() => ({ reason: 'Reported by user' }));
     const review = await Review.findByIdAndUpdate(
       id,
-      { $set: { isModerated: true } },
+      { $set: { isFlagged: true, moderationReason: String(reason || 'Reported by user').slice(0, 500) } },
       { new: true }
     );
 

@@ -1,105 +1,80 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { Server as SocketIOServer } from 'socket.io';
+import { NextResponse } from 'next/server';
 import { createServer } from 'http';
-
-// Store io instance globally so it persists across requests
-let io: SocketIOServer;
+import { Server as SocketIOServer } from 'socket.io';
+import connectDB from '@/lib/db';
+import Consultation from '@/models/Consultation';
+import { verifyToken } from '@/lib/jwt';
 
 declare global {
   var socketIO: SocketIOServer | undefined;
+  var onlineUsers: Map<string, number> | undefined;
 }
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   if (!global.socketIO) {
-    console.log('Starting Socket.io server...');
-
     const httpServer = createServer();
-
-    global.socketIO = new SocketIOServer(httpServer, {
-      cors: {
-        origin: process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
-        methods: ['GET', 'POST'],
-      },
+    const io = new SocketIOServer(httpServer, {
+      cors: { origin: process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000', methods: ['GET', 'POST'] },
     });
-
-    global.socketIO.on('connection', (socket) => {
-      console.log('User connected:', socket.id);
-
-      // Join a personal room using userId
-      socket.on('join', (userId: string) => {
-        socket.join(userId);
-        console.log(`User ${userId} joined their room`);
+    io.use((socket, next) => {
+      const token = typeof socket.handshake.auth.token === 'string' ? socket.handshake.auth.token : '';
+      const user = verifyToken(token);
+      if (!user?.userId) return next(new Error('Unauthorized'));
+      socket.data.userId = user.userId;
+      next();
+    });
+    io.on('connection', socket => {
+      const userId = String(socket.data.userId);
+      global.onlineUsers ||= new Map<string, number>();
+      global.onlineUsers.set(userId, (global.onlineUsers.get(userId) || 0) + 1);
+      socket.join(userId);
+      io.emit('presence:update', { userId, online: true });
+      socket.on('presence:check', (targetUserId: string) => {
+        socket.emit('presence:update', { userId: targetUserId, online: (global.onlineUsers?.get(targetUserId) || 0) > 0 });
       });
-
-      // --- CHAT EVENTS ---
-      socket.on('message:send', (data: {
-        senderId: string;
-        receiverId: string;
-        content: string;
-        messageId: string;
-      }) => {
-        // Send message to receiver's room instantly
-        global.socketIO?.to(data.receiverId).emit('message:receive', data);
+      socket.on('message:send', data => {
+        if (String(data.senderId) === userId && data.receiverId) io.to(String(data.receiverId)).emit('message:receive', data);
       });
-
-      socket.on('message:read', (data: {
-        messageId: string;
-        senderId: string;
-        receiverId: string;
-      }) => {
-        global.socketIO?.to(data.senderId).emit('message:read', data);
+      socket.on('message:read', data => {
+        if (String(data.readerId) === userId && data.senderId) io.to(String(data.senderId)).emit('message:read', data);
       });
-
-      socket.on('user:typing', (data: {
-        senderId: string;
-        receiverId: string;
-        isTyping: boolean;
-      }) => {
-        global.socketIO?.to(data.receiverId).emit('user:typing', data);
+      socket.on('user:typing', data => {
+        if (String(data.senderId) === userId && data.receiverId) io.to(String(data.receiverId)).emit('user:typing', data);
       });
-
-      // --- WEBRTC SIGNALLING EVENTS ---
-      socket.on('webrtc:join-room', (roomId: string, userId: string) => {
+      socket.on('webrtc:join-room', async (roomId: string) => {
+        await connectDB();
+        const consultation = await Consultation.findOne({
+          recordingMetadata: roomId,
+          status: 'active',
+          $or: [{ ownerId: socket.data.userId }, { vetId: socket.data.userId }],
+        });
+        if (!consultation) return socket.emit('webrtc:error', 'Consultation access denied');
         socket.join(roomId);
-        socket.to(roomId).emit('webrtc:user-joined', userId);
-        console.log(`User ${userId} joined WebRTC room ${roomId}`);
+        socket.data.roomId = roomId;
+        socket.to(roomId).emit('webrtc:user-joined');
       });
-
-      socket.on('webrtc:offer', (data: {
-        roomId: string;
-        offer: RTCSessionDescriptionInit;
-      }) => {
-        socket.to(data.roomId).emit('webrtc:offer', data.offer);
+      socket.on('webrtc:offer', data => socket.to(data.roomId).emit('webrtc:offer', data.offer));
+      socket.on('webrtc:answer', data => socket.to(data.roomId).emit('webrtc:answer', data.answer));
+      socket.on('webrtc:ice-candidate', data => socket.to(data.roomId).emit('webrtc:ice-candidate', data.candidate));
+      socket.on('consultation:chat', data => {
+        if (socket.data.roomId === data.roomId && typeof data.text === 'string' && data.text.length <= 1000) {
+          socket.to(data.roomId).emit('consultation:chat', { text: data.text, senderId: socket.data.userId, sentAt: new Date().toISOString() });
+        }
       });
-
-      socket.on('webrtc:answer', (data: {
-        roomId: string;
-        answer: RTCSessionDescriptionInit;
-      }) => {
-        socket.to(data.roomId).emit('webrtc:answer', data.answer);
-      });
-
-      socket.on('webrtc:ice-candidate', (data: {
-        roomId: string;
-        candidate: RTCIceCandidateInit;
-      }) => {
-        socket.to(data.roomId).emit('webrtc:ice-candidate', data.candidate);
-      });
-
-      socket.on('webrtc:leave-room', (roomId: string, userId: string) => {
-        socket.to(roomId).emit('webrtc:user-left', userId);
-        socket.leave(roomId);
-      });
-
       socket.on('disconnect', () => {
-        console.log('User disconnected:', socket.id);
+        if (socket.data.roomId) socket.to(socket.data.roomId).emit('webrtc:user-left');
+        const remaining = Math.max(0, (global.onlineUsers?.get(userId) || 1) - 1);
+        if (remaining === 0) {
+          global.onlineUsers?.delete(userId);
+          io.emit('presence:update', { userId, online: false });
+        } else {
+          global.onlineUsers?.set(userId, remaining);
+        }
       });
     });
-
-    httpServer.listen(3001, () => {
-      console.log('Socket.io server running on port 3001');
-    });
+    const port = Number(process.env.SIGNALING_PORT) || 3001;
+    httpServer.listen(port);
+    global.socketIO = io;
   }
-
-  return NextResponse.json({ message: 'Socket.io server is running', port: 3001 });
+  return NextResponse.json({ message: 'Signaling server is ready', port: Number(process.env.SIGNALING_PORT) || 3001 });
 }

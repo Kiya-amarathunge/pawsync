@@ -1,86 +1,15 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { Download, FileQuestion, ShieldCheck, X } from 'lucide-react';
+import DashboardLayout from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
-import DashboardLayout from '@/components/layout/DashboardLayout';
-
+interface PendingUser { _id: string; name: string; email: string; phoneNumber?: string; role: string; verificationStatus?: string; profile?: { licenseNumber?: string; businessName?: string; specialization?: string; credentials?: string; verificationDocuments?: string[] } }
 export default function VerificationsPage() {
-  const { token } = useAuth();
-  const { showToast } = useToast();
-  const [pending, setPending] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-
-  const fetchPending = async () => {
-    if (!token) return;
-    const res = await fetch('/api/admin/verifications', { headers: { Authorization: `Bearer ${token}` } });
-    const data = await res.json();
-    setPending(data.pendingUsers || []);
-    setIsLoading(false);
-  };
-
-  useEffect(() => { fetchPending(); }, [token]);
-
-  const handleAction = async (id: string, action: 'approve' | 'reject') => {
-    try {
-      const res = await fetch(`/api/admin/verifications/${id}/${action}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ reason: action === 'reject' ? 'Application does not meet requirements' : undefined }),
-      });
-      if (!res.ok) throw new Error('Action failed');
-      showToast(`Provider ${action}ed successfully`, 'success');
-      fetchPending();
-    } catch (err: any) {
-      showToast(err.message, 'error');
-    }
-  };
-
-  return (
-    <DashboardLayout>
-      <div className="animate-fadeIn">
-        <div className="page-header">
-          <h1 className="page-title">Provider Verifications</h1>
-          <p className="page-subtitle">Review and approve service provider applications</p>
-        </div>
-
-        {isLoading ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {[1, 2, 3].map(i => <div key={i} className="skeleton" style={{ height: 100 }} />)}
-          </div>
-        ) : pending.length === 0 ? (
-          <div className="card" style={{ padding: 60, textAlign: 'center' }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
-            <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>All caught up!</h2>
-            <p style={{ color: 'var(--text-secondary)' }}>No pending verifications</p>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {pending.map(user => (
-              <div key={user._id} className="card" style={{ padding: 24 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
-                  <div className="avatar" style={{ width: 52, height: 52, fontSize: 20 }}>{user.name?.[0]}</div>
-                  <div style={{ flex: 1 }}>
-                    <h3 style={{ fontSize: 16, fontWeight: 700 }}>{user.name}</h3>
-                    <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{user.email} • {user.phoneNumber}</p>
-                    <span className="badge badge-orange" style={{ marginTop: 4, textTransform: 'capitalize' }}>{user.role.replace('_', ' ')}</span>
-                  </div>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button className="btn btn-secondary" onClick={() => handleAction(user._id, 'approve')}>✓ Approve</button>
-                    <button className="btn btn-danger" onClick={() => handleAction(user._id, 'reject')}>✕ Reject</button>
-                  </div>
-                </div>
-                {user.profile && (
-                  <div style={{ padding: '12px', background: 'var(--surface)', borderRadius: 'var(--radius-md)', fontSize: 13, color: 'var(--text-secondary)' }}>
-                    {user.profile.licenseNumber && <p>🪪 License: {user.profile.licenseNumber}</p>}
-                    {user.profile.specialization && <p>🔬 Specialization: {user.profile.specialization}</p>}
-                    {user.profile.businessName && <p>🏢 Business: {user.profile.businessName}</p>}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </DashboardLayout>
-  );
+  const { token } = useAuth(); const { showToast } = useToast(); const [pending, setPending] = useState<PendingUser[]>([]); const [loading, setLoading] = useState(true);
+  const load = useCallback(async () => { if (!token) return; const response = await fetch('/api/admin/verifications', { headers: { Authorization: `Bearer ${token}` } }); const data = await response.json(); setPending(data.pendingUsers || []); setLoading(false); }, [token]); useEffect(() => { void load(); }, [load]);
+  const action = async (id: string, type: 'approve' | 'reject') => { const reason = type === 'reject' ? prompt('Reason for rejection') : undefined; if (type === 'reject' && !reason) return; const response = await fetch(`/api/admin/verifications/${id}/${type}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ reason }) }); const data = await response.json(); showToast(response.ok ? data.message : data.error, response.ok ? 'success' : 'error'); if (response.ok) await load(); };
+  const requestInfo = async (id: string) => { const note = prompt('What additional information is required?'); if (!note) return; const response = await fetch(`/api/admin/verifications/${id}/request-info`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ note }) }); const data = await response.json(); showToast(response.ok ? data.message : data.error, response.ok ? 'success' : 'error'); if (response.ok) await load(); };
+  const download = async (id: string, document: string) => { const response = await fetch(`/api/admin/verifications/${id}/credentials/${encodeURIComponent(document)}`, { headers: { Authorization: `Bearer ${token}` } }); if (!response.ok) return showToast('Unable to download credential', 'error'); const url = URL.createObjectURL(await response.blob()); const anchor = window.document.createElement('a'); anchor.href = url; anchor.download = document; anchor.click(); URL.revokeObjectURL(url); };
+  return <DashboardLayout><div style={{ marginBottom: 20 }}><h1 className="page-title">Provider verification</h1><p className="page-subtitle">Review identity, qualifications and submitted credentials</p></div>{loading ? <div className="skeleton" style={{ height: 120 }} /> : <div style={{ display: 'grid', gap: 12 }}>{pending.map(user => <article className="card" key={user._id} style={{ padding: 19 }}><div style={{ display: 'flex', justifyContent: 'space-between', gap: 14 }}><div><h2 style={{ fontSize: 16 }}>{user.name}</h2><p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{user.email} · {user.phoneNumber || 'No phone'}</p><span className="badge badge-orange" style={{ marginTop: 5 }}>{user.role.replace('_', ' ')}</span></div><div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}><button className="btn btn-primary btn-sm" onClick={() => void action(user._id, 'approve')}><ShieldCheck size={15} /> Approve</button><button className="btn btn-secondary btn-sm" onClick={() => void requestInfo(user._id)}><FileQuestion size={15} /> Request info</button><button className="btn btn-danger btn-sm" onClick={() => void action(user._id, 'reject')}><X size={15} /> Reject</button></div></div>{user.profile && <div style={{ padding: 12, background: 'var(--surface)', marginTop: 12 }}><p><strong>License/business:</strong> {user.profile.licenseNumber || user.profile.businessName || 'Not supplied'}</p><p><strong>Specialization:</strong> {user.profile.specialization || 'Not supplied'}</p><p><strong>Qualifications:</strong> {user.profile.credentials || 'Not supplied'}</p><div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 8 }}>{user.profile.verificationDocuments?.map(document => <button key={document} className="btn btn-secondary btn-sm" onClick={() => void download(user._id, document)}><Download size={14} /> Credential</button>)}</div></div>}</article>)}{pending.length === 0 && <div className="empty-state"><p>No pending provider applications.</p></div>}</div>}</DashboardLayout>;
 }

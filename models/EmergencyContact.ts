@@ -8,6 +8,9 @@ export interface IEmergencyContact extends Document {
   is24Hours: boolean;
   specializations: string[];
   isVerified: boolean;
+  isAvailable: boolean;
+  availabilityUpdatedAt?: Date;
+  linkedProviderId?: mongoose.Types.ObjectId;
 }
 
 const EmergencyContactSchema = new Schema<IEmergencyContact>({
@@ -21,6 +24,9 @@ const EmergencyContactSchema = new Schema<IEmergencyContact>({
   is24Hours: { type: Boolean, default: false },
   specializations: [{ type: String }],
   isVerified: { type: Boolean, default: false },
+  isAvailable: { type: Boolean, default: true },
+  availabilityUpdatedAt: Date,
+  linkedProviderId: { type: Schema.Types.ObjectId, ref: 'User' },
 });
 
 EmergencyContactSchema.index({ 'location.lat': 1, 'location.lng': 1 });

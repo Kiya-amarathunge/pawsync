@@ -1,110 +1,90 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import connectDB from '@/lib/db';
 import Appointment from '@/models/Appointment';
-import Notification from '@/models/Notification';
-import { verifyToken } from '@/lib/jwt';
-import '@/models/Pet';
+import Pet from '@/models/Pet';
+import ServiceProvider from '@/models/ServiceProvider';
+import Veterinarian from '@/models/Veterinarian';
 import '@/models/User';
+import { getRequestUser, hasRole } from '@/lib/request-auth';
+import { intervalsOverlap, isWithinAvailability } from '@/lib/appointments';
+import { createNotification } from '@/lib/notifications';
 
-function getUserFromRequest(req: NextRequest) {
-  const authHeader = req.headers.get('authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
-  const token = authHeader.split(' ')[1];
-  return verifyToken(token);
-}
+const bookingSchema = z.object({
+  petId: z.string().min(1), providerId: z.string().min(1),
+  serviceType: z.enum(['veterinary', 'grooming', 'training', 'boarding', 'telemedicine']),
+  dateTime: z.string().datetime(), duration: z.number().int().min(15).max(480).optional(),
+  notes: z.string().trim().max(2000).optional().default(''),
+});
 
-// GET /api/appointments
 export async function GET(req: NextRequest) {
   try {
     await connectDB();
-    const user = getUserFromRequest(req);
+    const user = getRequestUser(req);
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-    const { searchParams } = req.nextUrl;
-    const status = searchParams.get('status');
-    const page = parseInt(searchParams.get('page') || '1');
+    const status = req.nextUrl.searchParams.get('status');
+    const page = Math.max(1, Number(req.nextUrl.searchParams.get('page')) || 1);
     const limit = 20;
-
-    const filter: any =
-      user.role === 'pet_owner'
-        ? { ownerId: user.userId }
-        : { providerId: user.userId };
-
+    const filter: Record<string, unknown> = user.role === 'pet_owner' ? { ownerId: user.userId } : { providerId: user.userId };
     if (status) filter.status = status;
-
-    const appointments = await Appointment.find(filter)
-      .sort({ dateTime: 1 })
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .populate('petId', 'name species')
-      .populate('ownerId', 'name email')
-      .populate('providerId', 'name email');
-
+    const appointments = await Appointment.find(filter).sort({ dateTime: 1 }).skip((page - 1) * limit).limit(limit)
+      .populate('petId', 'name species').populate('ownerId', 'name email').populate('providerId', 'name email');
     const total = await Appointment.countDocuments(filter);
-
     return NextResponse.json({ appointments, total, page, pages: Math.ceil(total / limit) });
   } catch (error) {
     console.error('Get appointments error:', error);
-    return NextResponse.json({ error: 'Something went wrong' }, { status: 500 });
+    return NextResponse.json({ error: 'Unable to load appointments' }, { status: 500 });
   }
 }
 
-// POST /api/appointments
 export async function POST(req: NextRequest) {
   try {
     await connectDB();
-    const user = getUserFromRequest(req);
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-    const body = await req.json();
-    const { petId, providerId, serviceType, dateTime, duration, notes, price } = body;
-
-    if (!petId || !providerId || !serviceType || !dateTime) {
-      return NextResponse.json({ error: 'Pet, provider, service type, and date are required' }, { status: 400 });
+    const user = getRequestUser(req);
+    if (!hasRole(user, ['pet_owner'])) return NextResponse.json({ error: 'Pet owner access required' }, { status: 403 });
+    const parsed = bookingSchema.safeParse(await req.json());
+    if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
+    const data = parsed.data;
+    const [pet, serviceProvider, veterinarian] = await Promise.all([
+      Pet.findOne({ _id: data.petId, ownerId: user.userId }),
+      ServiceProvider.findOne({ providerId: data.providerId, isVerified: true }),
+      Veterinarian.findOne({ vetId: data.providerId, isVerified: true }),
+    ]);
+    if (!pet) return NextResponse.json({ error: 'Pet not found' }, { status: 404 });
+    const provider = serviceProvider || veterinarian;
+    if (!provider) return NextResponse.json({ error: 'Verified provider not found' }, { status: 404 });
+    const serviceTypes = serviceProvider?.serviceType || ['veterinary', 'telemedicine'];
+    if (!serviceTypes.includes(data.serviceType)) return NextResponse.json({ error: 'Provider does not offer this service' }, { status: 400 });
+    const pricing = provider.pricing?.find((item: { service: string }) => item.service === data.serviceType);
+    const duration = pricing?.duration || data.duration || 60;
+    const start = new Date(data.dateTime);
+    if (start.getTime() <= Date.now()) return NextResponse.json({ error: 'Appointment must be in the future' }, { status: 400 });
+    const availability = provider.availability.find((slot: { dayOfWeek: number }) => slot.dayOfWeek === start.getDay());
+    const blocked = provider.blockedDates.some((date: Date) => date.toDateString() === start.toDateString());
+    if (!availability || blocked) return NextResponse.json({ error: 'Provider is not available on this date' }, { status: 409 });
+    if (!isWithinAvailability(start, duration, availability)) {
+      return NextResponse.json({ error: 'Selected time is outside provider working hours' }, { status: 409 });
     }
-
-    // Check for double booking
-    const existingAppointment = await Appointment.findOne({
-      providerId,
-      dateTime: new Date(dateTime),
+    const candidateEnd = new Date(start.getTime() + duration * 60_000);
+    const possibleOverlaps = await Appointment.find({
+      providerId: data.providerId,
+      dateTime: { $lt: candidateEnd },
       status: { $in: ['pending', 'confirmed'] },
     });
-
-    if (existingAppointment) {
-      return NextResponse.json({ error: 'This time slot is already booked' }, { status: 409 });
+    if (possibleOverlaps.some(appointment => intervalsOverlap(start, duration, appointment))) {
+      return NextResponse.json({ error: 'This time overlaps another appointment' }, { status: 409 });
     }
-
     const appointment = await Appointment.create({
-      petId,
-      providerId,
-      ownerId: user.userId,
-      serviceType,
-      dateTime: new Date(dateTime),
-      duration: duration || 60,
-      notes,
-      price,
-      status: 'pending',
+      ...data, dateTime: start, duration, price: pricing?.price || 0,
+      ownerId: user.userId, status: 'pending',
     });
-
-    // Notify the provider
-    await Notification.create({
-      userId: providerId,
-      type: 'NEW_BOOKING',
-      message: `You have a new booking request for ${serviceType} on ${new Date(dateTime).toDateString()}`,
-      isRead: false,
-    });
-
-    // Notify the owner
-    await Notification.create({
-      userId: user.userId,
-      type: 'BOOKING_CONFIRMATION',
-      message: `Your ${serviceType} appointment on ${new Date(dateTime).toDateString()} has been requested successfully`,
-      isRead: false,
-    });
-
+    await Promise.all([
+      createNotification({ userId: data.providerId, type: 'NEW_BOOKING', message: `New ${data.serviceType} booking request for ${start.toLocaleString()}`, actionUrl: '/provider/appointments' }),
+      createNotification({ userId: user.userId, type: 'BOOKING_CONFIRMATION', message: `Your ${data.serviceType} appointment was requested for ${start.toLocaleString()}`, actionUrl: '/appointments' }),
+    ]);
     return NextResponse.json({ message: 'Appointment booked successfully', appointment }, { status: 201 });
   } catch (error) {
     console.error('Create appointment error:', error);
-    return NextResponse.json({ error: 'Something went wrong' }, { status: 500 });
+    return NextResponse.json({ error: 'Unable to create appointment' }, { status: 500 });
   }
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
 import Review from '@/models/Review';
 import { verifyToken } from '@/lib/jwt';
+import { moderateText } from '@/lib/content-moderation';
 
 function getUserFromRequest(req: NextRequest) {
   const authHeader = req.headers.get('authorization');
@@ -20,6 +21,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const { id } = await params;
     const { response } = await req.json();
     if (!response) return NextResponse.json({ error: 'Response text is required' }, { status: 400 });
+    const moderation = moderateText(response);
+    if (!moderation.allowed) return NextResponse.json({ error: `Response requires revision: ${moderation.reasons.join(', ')}` }, { status: 422 });
 
     const review = await Review.findOneAndUpdate(
       { _id: id, providerId: user.userId },

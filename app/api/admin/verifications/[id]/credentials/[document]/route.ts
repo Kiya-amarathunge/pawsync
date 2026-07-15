@@ -1,0 +1,19 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { readFile } from 'fs/promises';
+import path from 'path';
+import connectDB from '@/lib/db';
+import User from '@/models/User';
+import ServiceProvider from '@/models/ServiceProvider';
+import Veterinarian from '@/models/Veterinarian';
+import { getRequestUser } from '@/lib/request-auth';
+
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string; document: string }> }) {
+  try {
+    await connectDB(); const admin = getRequestUser(req); if (!admin || admin.role !== 'admin') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const { id, document } = await params; const user = await User.findById(id).select('role'); if (!user) return NextResponse.json({ error: 'Provider not found' }, { status: 404 });
+    const profile = user.role === 'veterinarian' ? await Veterinarian.findOne({ vetId: id }) : await ServiceProvider.findOne({ providerId: id });
+    if (!profile || !profile.verificationDocuments.includes(document) || !/^[a-f0-9-]+\.(pdf|jpg|jpeg|png)$/i.test(document)) return NextResponse.json({ error: 'Credential not found' }, { status: 404 });
+    const content = await readFile(path.join(process.cwd(), 'storage', 'provider-credentials', document)); const extension = path.extname(document).toLowerCase(); const mime = extension === '.pdf' ? 'application/pdf' : extension === '.png' ? 'image/png' : 'image/jpeg';
+    return new NextResponse(content, { headers: { 'Content-Type': mime, 'Content-Disposition': `attachment; filename="credential${extension}"`, 'Cache-Control': 'private, no-store' } });
+  } catch (error) { console.error('Download credential error:', error); return NextResponse.json({ error: 'Unable to download credential' }, { status: 500 }); }
+}

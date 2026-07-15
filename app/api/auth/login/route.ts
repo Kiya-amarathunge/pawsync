@@ -57,9 +57,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const tokenPayload = { userId: user._id, role: user.role, email: user.email };
+    const tokenPayload = {
+      userId: String(user._id),
+      role: user.role,
+      email: user.email,
+      adminRole: user.role === 'admin' ? user.adminRole || 'super_admin' : undefined,
+    };
     const accessToken = signAccessToken(tokenPayload);
     const refreshToken = signRefreshToken(tokenPayload);
+    user.lastLoginAt = new Date();
+    await user.save();
 
     const response = NextResponse.json({
       message: 'Login successful',

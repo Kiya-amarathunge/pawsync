@@ -1,234 +1,35 @@
 'use client';
-import { useEffect, useState } from 'react';
+/* eslint-disable @next/next/no-img-element */
+
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { BadgeCheck, Bell, BookOpen, Flag, ImagePlus, MessageSquare, Plus, Search, ThumbsDown, ThumbsUp } from 'lucide-react';
+import DashboardLayout from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
-import DashboardLayout from '@/components/layout/DashboardLayout';
 
-const categories = ['all', 'health', 'nutrition', 'training', 'general'];
-const categoryEmoji: Record<string, string> = { all: '🌿', health: '🏥', nutrition: '🥗', training: '🎓', general: '💬' };
+interface Reply { replyId: string; authorId: { name: string; role: string }; content: string; isVetVerified: boolean; images: string[]; upvotes: string[]; createdAt: string }
+interface Post { _id: string; authorId: { name: string; role: string }; category: string; title: string; content: string; images: string[]; upvotes: string[]; downvotes: string[]; replies: Reply[]; followers: string[]; isFollowing: boolean; createdAt: string }
+interface Resource { title: string; summary: string; category: string; url?: string }
 
 export default function ForumPage() {
-  const { token } = useAuth();
-  const { showToast } = useToast();
-  const [posts, setPosts] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [activeCategory, setActiveCategory] = useState('all');
-  const [showModal, setShowModal] = useState(false);
-  const [selectedPost, setSelectedPost] = useState<any>(null);
-  const [reply, setReply] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [form, setForm] = useState({ category: 'health', title: '', content: '' });
+  const { token } = useAuth(); const { showToast } = useToast();
+  const [posts, setPosts] = useState<Post[]>([]); const [resources, setResources] = useState<Resource[]>([]); const [participation, setParticipation] = useState({ posts: 0, discussionsRepliedTo: 0, helpfulVotes: 0 });
+  const [category, setCategory] = useState('all'); const [sort, setSort] = useState('recent'); const [query, setQuery] = useState(''); const [showForm, setShowForm] = useState(false); const [expanded, setExpanded] = useState('');
+  const [form, setForm] = useState({ category: 'health', title: '', content: '' }); const [postImages, setPostImages] = useState<File[]>([]); const [replies, setReplies] = useState<Record<string, string>>({}); const [replyImages, setReplyImages] = useState<Record<string, File | null>>({});
+  const headers = { Authorization: `Bearer ${token}` };
+  const load = useCallback(async () => { if (!token) return; const params = new URLSearchParams({ sort }); if (category !== 'all') params.set('category', category); const [postResponse, resourceResponse, participationResponse] = await Promise.all([fetch(`/api/forum/posts?${params}`, { headers: { Authorization: `Bearer ${token}` } }), fetch('/api/forum/resources'), fetch('/api/forum/participation', { headers: { Authorization: `Bearer ${token}` } })]); const [postData, resourceData, participationData] = await Promise.all([postResponse.json(), resourceResponse.json(), participationResponse.json()]); setPosts(postData.posts || []); setResources(resourceData.resources || []); setParticipation(participationData); }, [category, sort, token]);
+  useEffect(() => { void load(); }, [load]);
 
-  const fetchPosts = async () => {
-    const url = activeCategory === 'all' ? '/api/forum/posts' : `/api/forum/posts?category=${activeCategory}`;
-    const res = await fetch(url, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined);
-    const data = await res.json();
-    setPosts(data.posts || []);
-    setIsLoading(false);
-  };
+  const createPost = async (event: FormEvent) => { event.preventDefault(); const response = await fetch('/api/forum/posts', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(form) }); const data = await response.json(); if (!response.ok) return showToast(data.error, 'error'); for (const image of postImages) { const body = new FormData(); body.append('file', image); await fetch(`/api/forum/posts/${data.post._id}/images`, { method: 'POST', headers, body }); } setShowForm(false); setForm({ category: 'health', title: '', content: '' }); setPostImages([]); showToast('Topic published', 'success'); await load(); };
+  const reply = async (postId: string) => { const response = await fetch(`/api/forum/posts/${postId}/replies`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ content: replies[postId] }) }); const data = await response.json(); if (!response.ok) return showToast(data.error, 'error'); const image = replyImages[postId]; if (image) { const body = new FormData(); body.append('file', image); body.append('replyId', data.replyId); await fetch(`/api/forum/posts/${postId}/images`, { method: 'POST', headers, body }); } setReplies(value => ({ ...value, [postId]: '' })); setReplyImages(value => ({ ...value, [postId]: null })); await load(); };
+  const vote = async (postId: string, voteType: 'upvote' | 'downvote') => { await fetch(`/api/forum/posts/${postId}/vote`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ voteType }) }); await load(); };
+  const follow = async (postId: string) => { const response = await fetch(`/api/forum/posts/${postId}/follow`, { method: 'PATCH', headers }); const data = await response.json(); showToast(data.message, 'success'); await load(); };
+  const report = async (postId: string) => { const reason = prompt('Why are you reporting this topic?'); if (!reason) return; await fetch(`/api/forum/posts/${postId}/report`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }) }); showToast('Topic reported for review', 'success'); await load(); };
+  const search = async () => { if (!query.trim()) return load(); const response = await fetch(`/api/forum/search?q=${encodeURIComponent(query)}`); const data = await response.json(); setPosts(data.posts || []); };
 
-  useEffect(() => { fetchPosts(); }, [activeCategory, token]);
-
-  const handleCreatePost = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    try {
-      const res = await fetch('/api/forum/posts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(form),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      showToast('Post created!', 'success');
-      setShowModal(false);
-      setForm({ category: 'health', title: '', content: '' });
-      fetchPosts();
-    } catch (err: any) {
-      showToast(err.message, 'error');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleReply = async (postId: string) => {
-    if (!reply.trim()) return;
-    try {
-      const res = await fetch(`/api/forum/posts/${postId}/replies`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ content: reply }),
-      });
-      if (!res.ok) throw new Error('Failed to reply');
-      showToast('Reply added!', 'success');
-      setReply('');
-      fetchPosts();
-    } catch (err: any) {
-      showToast(err.message, 'error');
-    }
-  };
-
-  const handleVote = async (postId: string) => {
-    await fetch(`/api/forum/posts/${postId}/vote`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ voteType: 'upvote' }),
-    });
-    fetchPosts();
-  };
-
-  return (
-    <DashboardLayout>
-      <div className="animate-fadeIn">
-        <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div>
-            <h1 className="page-title">Community Forum</h1>
-            <p className="page-subtitle">Share experiences and get advice from fellow pet owners</p>
-          </div>
-          <button className="btn btn-primary" onClick={() => setShowModal(true)}>+ New Post</button>
-        </div>
-
-        {/* Category tabs */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 24, flexWrap: 'wrap' }}>
-          {categories.map(cat => (
-            <button
-              key={cat}
-              onClick={() => setActiveCategory(cat)}
-              style={{
-                padding: '8px 16px',
-                borderRadius: 'var(--radius-full)',
-                border: `1.5px solid ${activeCategory === cat ? 'var(--primary)' : 'var(--border)'}`,
-                background: activeCategory === cat ? 'var(--primary-light)' : 'white',
-                color: activeCategory === cat ? 'var(--primary)' : 'var(--text-secondary)',
-                cursor: 'pointer',
-                fontSize: 13,
-                fontWeight: activeCategory === cat ? 600 : 400,
-                textTransform: 'capitalize',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              {categoryEmoji[cat]} {cat}
-            </button>
-          ))}
-        </div>
-
-        {/* Posts */}
-        {isLoading ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {[1, 2, 3].map(i => <div key={i} className="skeleton" style={{ height: 120, borderRadius: 'var(--radius-lg)' }} />)}
-          </div>
-        ) : posts.length === 0 ? (
-          <div className="card" style={{ padding: 60, textAlign: 'center' }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>🌿</div>
-            <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>No posts yet</h2>
-            <p style={{ color: 'var(--text-secondary)', marginBottom: 24 }}>Be the first to start a conversation!</p>
-            <button className="btn btn-primary" onClick={() => setShowModal(true)}>Create First Post</button>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {posts.map(post => (
-              <div key={post._id} className="card" style={{ padding: 24 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-                      <span className="badge badge-green" style={{ textTransform: 'capitalize' }}>
-                        {categoryEmoji[post.category]} {post.category}
-                      </span>
-                      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                        by {post.authorId?.name || 'Anonymous'} • {new Date(post.createdAt).toLocaleDateString()}
-                      </span>
-                    </div>
-                    <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 8 }}>{post.title}</h3>
-                    <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                      {post.content.length > 200 ? `${post.content.slice(0, 200)}...` : post.content}
-                    </p>
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 16 }}>
-                  <button
-                    onClick={() => handleVote(post._id)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, color: 'var(--text-secondary)', fontSize: 13 }}
-                  >
-                    👍 {post.upvotes?.length || 0}
-                  </button>
-                  <button
-                    onClick={() => setSelectedPost(selectedPost?._id === post._id ? null : post)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, color: 'var(--text-secondary)', fontSize: 13 }}
-                  >
-                    💬 {post.replies?.length || 0} replies
-                  </button>
-                </div>
-
-                {/* Replies */}
-                {selectedPost?._id === post._id && (
-                  <div style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
-                    {post.replies?.map((reply: any) => (
-                      <div key={reply.replyId} style={{ padding: '12px', background: 'var(--surface)', borderRadius: 'var(--radius-md)', marginBottom: 8 }}>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
-                          <span style={{ fontSize: 13, fontWeight: 600 }}>{reply.authorId?.name || 'User'}</span>
-                          {reply.isVetVerified && <span className="badge badge-blue">✓ Vet</span>}
-                          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{new Date(reply.createdAt).toLocaleDateString()}</span>
-                        </div>
-                        <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{reply.content}</p>
-                      </div>
-                    ))}
-                    <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                      <input
-                        className="input"
-                        placeholder="Write a reply..."
-                        value={reply}
-                        onChange={e => setReply(e.target.value)}
-                      />
-                      <button className="btn btn-primary btn-sm" onClick={() => handleReply(post._id)}>Reply</button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Create Post Modal */}
-        {showModal && (
-          <div className="modal-overlay" onClick={() => setShowModal(false)}>
-            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 540 }}>
-              <h2 className="modal-title">Create Post</h2>
-              <p className="modal-subtitle">Share with the PawSync community</p>
-              <form onSubmit={handleCreatePost} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                <div className="input-group">
-                  <label className="input-label">Category</label>
-                  <select className="input" value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))}>
-                    {categories.filter(c => c !== 'all').map(c => <option key={c} value={c} style={{ textTransform: 'capitalize' }}>{c}</option>)}
-                  </select>
-                </div>
-                <div className="input-group">
-                  <label className="input-label">Title *</label>
-                  <input className="input" placeholder="What's your question or topic?" value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} required />
-                </div>
-                <div className="input-group">
-                  <label className="input-label">Content *</label>
-                  <textarea
-                    className="input"
-                    rows={5}
-                    placeholder="Share details about your experience or question..."
-                    value={form.content}
-                    onChange={e => setForm(p => ({ ...p, content: e.target.value }))}
-                    required
-                    style={{ resize: 'vertical' }}
-                  />
-                </div>
-                <div style={{ display: 'flex', gap: 12 }}>
-                  <button type="button" className="btn btn-outline" style={{ flex: 1 }} onClick={() => setShowModal(false)}>Cancel</button>
-                  <button type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={isSubmitting}>
-                    {isSubmitting ? <><div className="spinner" />Posting...</> : 'Post 🌿'}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-      </div>
-    </DashboardLayout>
-  );
+  return <DashboardLayout><div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}><div><h1 className="page-title">Community</h1><p className="page-subtitle">Discussions and verified pet-care guidance</p></div><button className="btn btn-primary" onClick={() => setShowForm(true)}><Plus size={17} /> New topic</button></div>
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 18, alignItems: 'start' }}><main><div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 15 }}><select className="input" style={{ maxWidth: 140 }} value={category} onChange={event => setCategory(event.target.value)}>{['all', 'health', 'nutrition', 'training', 'general'].map(item => <option key={item}>{item}</option>)}</select><select className="input" style={{ maxWidth: 130 }} value={sort} onChange={event => setSort(event.target.value)}><option value="recent">Recent</option><option value="trending">Trending</option></select><input className="input" style={{ maxWidth: 260 }} placeholder="Search discussions" value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => event.key === 'Enter' && void search()} /><button className="btn btn-secondary" onClick={() => void search()}><Search size={16} /></button></div><div style={{ display: 'grid', gap: 12 }}>{posts.map(post => <article className="card" key={post._id} style={{ padding: 18 }}><div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}><div><span className="badge badge-green">{post.category}</span><h2 style={{ fontSize: 17, marginTop: 8 }}>{post.title}</h2><p style={{ fontSize: 12, color: 'var(--text-muted)' }}>{post.authorId?.name} · {new Date(post.createdAt).toLocaleDateString()}</p></div><button className="btn btn-ghost btn-sm" onClick={() => void follow(post._id)}><Bell size={16} fill={post.isFollowing ? 'currentColor' : 'none'} /></button></div><p style={{ marginTop: 12, lineHeight: 1.55 }}>{post.content}</p>{post.images?.length > 0 && <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>{post.images.map(url => <img key={url} src={url} alt="Forum attachment" style={{ width: 110, height: 80, objectFit: 'cover', borderRadius: 5 }} />)}</div>}<div style={{ display: 'flex', gap: 8, marginTop: 13 }}><button className="btn btn-secondary btn-sm" onClick={() => void vote(post._id, 'upvote')}><ThumbsUp size={15} /> {post.upvotes.length}</button><button className="btn btn-secondary btn-sm" onClick={() => void vote(post._id, 'downvote')}><ThumbsDown size={15} /> {post.downvotes.length}</button><button className="btn btn-secondary btn-sm" onClick={() => setExpanded(value => value === post._id ? '' : post._id)}><MessageSquare size={15} /> {post.replies.length}</button><button className="btn btn-ghost btn-sm" onClick={() => void report(post._id)}><Flag size={15} /> Report</button></div>{expanded === post._id && <div style={{ marginTop: 15, borderTop: '1px solid var(--border)', paddingTop: 13 }}><div style={{ display: 'grid', gap: 9 }}>{post.replies.map(item => <div key={item.replyId} style={{ padding: 11, background: 'var(--surface)', borderRadius: 5 }}><div style={{ display: 'flex', gap: 6, alignItems: 'center' }}><strong style={{ fontSize: 12 }}>{item.authorId?.name || 'Member'}</strong>{item.isVetVerified && <span className="badge badge-blue"><BadgeCheck size={12} /> Verified veterinarian</span>}</div><p style={{ marginTop: 5, fontSize: 13 }}>{item.content}</p>{item.images?.map(url => <img key={url} src={url} alt="Reply attachment" style={{ width: 100, marginTop: 7 }} />)}</div>)}</div><textarea className="input" style={{ marginTop: 10 }} placeholder="Write a reply" value={replies[post._id] || ''} onChange={event => setReplies(value => ({ ...value, [post._id]: event.target.value }))} /><div style={{ display: 'flex', gap: 8, marginTop: 8 }}><label className="btn btn-secondary btn-sm"><ImagePlus size={15} /> Image<input hidden type="file" accept="image/jpeg,image/png" onChange={event => setReplyImages(value => ({ ...value, [post._id]: event.target.files?.[0] || null }))} /></label><button className="btn btn-primary btn-sm" disabled={!replies[post._id]?.trim()} onClick={() => void reply(post._id)}>Reply</button></div></div>}</article>)}</div></main>
+      <aside style={{ display: 'grid', gap: 12 }}><section className="card" style={{ padding: 16 }}><h2 style={{ fontSize: 15, marginBottom: 10 }}>Your participation</h2><p>{participation.posts} topics</p><p>{participation.discussionsRepliedTo} discussions joined</p><p>{participation.helpfulVotes} helpful votes</p></section><section className="card" style={{ padding: 16 }}><h2 style={{ fontSize: 15, display: 'flex', gap: 7, marginBottom: 10 }}><BookOpen size={17} /> Vet-approved resources</h2>{resources.slice(0, 5).map(resource => <div key={resource.title} style={{ marginBottom: 11 }}><strong style={{ fontSize: 12 }}>{resource.title}</strong><p style={{ fontSize: 11, color: 'var(--text-muted)' }}>{resource.summary}</p></div>)}</section></aside></div>
+    {showForm && <div className="modal-overlay" onClick={() => setShowForm(false)}><form className="modal" onSubmit={createPost} onClick={event => event.stopPropagation()}><h2 className="modal-title">Create topic</h2><select className="input" value={form.category} onChange={event => setForm(value => ({ ...value, category: event.target.value }))}>{['health', 'nutrition', 'training', 'general'].map(item => <option key={item}>{item}</option>)}</select><input className="input" style={{ marginTop: 10 }} placeholder="Topic title" value={form.title} onChange={event => setForm(value => ({ ...value, title: event.target.value }))} required /><textarea className="input" style={{ marginTop: 10 }} rows={6} placeholder="Share your question or experience" value={form.content} onChange={event => setForm(value => ({ ...value, content: event.target.value }))} required /><label className="btn btn-secondary btn-sm" style={{ marginTop: 10 }}><ImagePlus size={15} /> Add images<input hidden type="file" multiple accept="image/jpeg,image/png" onChange={event => setPostImages(Array.from(event.target.files || []).slice(0, 5))} /></label><button className="btn btn-primary btn-full" style={{ marginTop: 14 }}>Publish</button></form></div>}
+  </DashboardLayout>;
 }

@@ -30,6 +30,7 @@ export async function GET(req: NextRequest) {
       isVerified: true,
       isActive: false,
       isSuspended: false,
+      verificationStatus: { $in: ['pending', 'more_info_requested'] },
     })
       .select('-password')
       .skip((page - 1) * limit)

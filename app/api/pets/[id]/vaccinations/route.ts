@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
 import Pet from '@/models/Pet';
-import Notification from '@/models/Notification';
 import { verifyToken } from '@/lib/jwt';
 
 function getUserFromRequest(req: NextRequest) {
@@ -24,16 +23,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
     const pet = await Pet.findOne({ _id: id, ownerId: user.userId });
     if (!pet) return NextResponse.json({ error: 'Pet not found' }, { status: 404 });
-    pet.vaccinationHistory.push({ vaccine, date: new Date(date), nextDueDate: new Date(nextDueDate) });
+    pet.vaccinationHistory.push({ vaccine, date: new Date(date), nextDueDate: nextDueDate ? new Date(nextDueDate) : undefined, reminderSent: false });
     await pet.save();
-    if (nextDueDate) {
-      await Notification.create({
-        userId: user.userId,
-        type: 'VACCINATION_REMINDER',
-        message: `Upcoming vaccination for ${pet.name}: ${vaccine} is due on ${new Date(nextDueDate).toDateString()}`,
-        isRead: false,
-      });
-    }
     return NextResponse.json({ message: 'Vaccination record added successfully', pet }, { status: 201 });
   } catch (error) {
     console.error('Add vaccination error:', error);

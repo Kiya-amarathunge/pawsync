@@ -2,12 +2,19 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import DashboardLayout from '@/components/layout/DashboardLayout';
+import { Download } from 'lucide-react';
 
 export default function EarningsPage() {
   const { token } = useAuth();
   const [earnings, setEarnings] = useState<any>(null);
   const [period, setPeriod] = useState('monthly');
   const [isLoading, setIsLoading] = useState(true);
+
+  const downloadReport = async () => {
+    const response = await fetch('/api/provider/dashboard/report', { headers: { Authorization: `Bearer ${token}` } });
+    if (!response.ok) return;
+    const url = URL.createObjectURL(await response.blob()); const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'pawsync-financial-report.pdf'; anchor.click(); URL.revokeObjectURL(url);
+  };
 
   useEffect(() => {
     if (!token) return;
@@ -25,11 +32,11 @@ export default function EarningsPage() {
             <h1 className="page-title">Earnings</h1>
             <p className="page-subtitle">Track your revenue and financial performance</p>
           </div>
-          <select className="input" style={{ maxWidth: 160 }} value={period} onChange={e => setPeriod(e.target.value)}>
+          <div style={{ display: 'flex', gap: 8 }}><button className="btn btn-secondary" onClick={() => void downloadReport()}><Download size={17} /> Financial report</button><select className="input" style={{ maxWidth: 160 }} value={period} onChange={e => setPeriod(e.target.value)}>
             <option value="daily">Daily</option>
             <option value="weekly">Weekly</option>
             <option value="monthly">Monthly</option>
-          </select>
+          </select></div>
         </div>
 
         {/* Total */}

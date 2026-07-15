@@ -13,9 +13,12 @@ export interface IServiceProvider extends Document {
   verificationDocuments: string[];
   availability: { dayOfWeek: number; startTime: string; endTime: string }[];
   blockedDates: Date[];
-  pricing: { service: string; price: number }[];
+  pricing: { service: string; price: number; duration: number }[];
   responseRate: number;
   acceptanceRate: number;
+  businessDescription: string;
+  photos: string[];
+  serviceRadiusKm: number;
 }
 
 const ServiceProviderSchema = new Schema<IServiceProvider>({
@@ -31,9 +34,12 @@ const ServiceProviderSchema = new Schema<IServiceProvider>({
   verificationDocuments: [{ type: String }],
   availability: [{ dayOfWeek: { type: Number }, startTime: { type: String }, endTime: { type: String } }],
   blockedDates: [{ type: Date }],
-  pricing: [{ service: { type: String }, price: { type: Number } }],
+  pricing: [{ service: { type: String }, price: { type: Number }, duration: { type: Number, default: 60 } }],
   responseRate: { type: Number, default: 0 },
   acceptanceRate: { type: Number, default: 0 },
+  businessDescription: { type: String, maxlength: 3000 },
+  photos: [{ type: String }],
+  serviceRadiusKm: { type: Number, default: 50, min: 1, max: 500 },
 });
 
 ServiceProviderSchema.index({ providerId: 1 });

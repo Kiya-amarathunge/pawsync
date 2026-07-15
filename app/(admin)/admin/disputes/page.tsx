@@ -12,6 +12,8 @@ export default function DisputesPage() {
   const [selected, setSelected] = useState<any>(null);
   const [resolution, setResolution] = useState('');
   const [isResolving, setIsResolving] = useState(false);
+  const [resolutionAction, setResolutionAction] = useState<'mediate' | 'cancel' | 'refund'>('mediate');
+  const [refundAmount, setRefundAmount] = useState('');
 
   useEffect(() => {
     if (!token) return;
@@ -27,7 +29,7 @@ export default function DisputesPage() {
       const res = await fetch(`/api/admin/disputes/${selected._id}/resolve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ resolution, notifyOwner: true, notifyProvider: true }),
+        body: JSON.stringify({ resolution, notifyOwner: true, notifyProvider: true, action: resolutionAction, refundAmount: refundAmount ? Number(refundAmount) : undefined }),
       });
       if (!res.ok) throw new Error('Failed to resolve');
       showToast('Dispute resolved!', 'success');
@@ -105,6 +107,8 @@ export default function DisputesPage() {
                 ))}
               </div>
               <div className="input-group" style={{ marginBottom: 16 }}>
+                <label className="input-label">Remedy</label><select className="input" value={resolutionAction} onChange={event => setResolutionAction(event.target.value as 'mediate' | 'cancel' | 'refund')}><option value="mediate">Mediation only</option><option value="cancel">Cancel appointment</option><option value="refund">Approve refund</option></select>
+                {resolutionAction === 'refund' && <input className="input" style={{ marginTop: 8 }} type="number" min="0" max={selected.price || undefined} placeholder="Refund amount" value={refundAmount} onChange={event => setRefundAmount(event.target.value)} />}
                 <label className="input-label">Resolution Decision</label>
                 <textarea
                   className="input"

@@ -1,8 +1,10 @@
 'use client';
-import { useState } from 'react';
+
+import { useState, type FormEvent } from 'react';
+import Link from 'next/link';
+import { CalendarCheck, ClipboardCheck, Eye, EyeOff, PawPrint, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
-import Link from 'next/link';
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -12,152 +14,47 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
     setIsLoading(true);
     try {
       await login(email, password);
-      showToast('Welcome back!', 'success');
-    } catch (err: any) {
-      showToast(err.message || 'Login failed', 'error');
+      showToast('Welcome back', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Login failed', 'error');
     } finally {
       setIsLoading(false);
     }
   };
 
-  return (
-    <div style={{
-      minHeight: '100vh',
-      display: 'flex',
-      background: 'linear-gradient(135deg, #f0faf6 0%, #e8f4ff 50%, #fff8f5 100%)',
-    }}>
-      {/* Left side — branding */}
-      <div style={{
-        flex: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        padding: '60px',
-        background: 'linear-gradient(135deg, var(--primary) 0%, #157a5a 100%)',
-        color: 'white',
-        position: 'relative',
-        overflow: 'hidden',
-      }} className="hidden md:flex">
-        {/* Background decoration */}
-        <div style={{
-          position: 'absolute', top: -100, right: -100,
-          width: 400, height: 400,
-          borderRadius: '50%',
-          background: 'rgba(255,255,255,0.08)',
-        }} />
-        <div style={{
-          position: 'absolute', bottom: -50, left: -50,
-          width: 300, height: 300,
-          borderRadius: '50%',
-          background: 'rgba(255,255,255,0.05)',
-        }} />
-
-        <div style={{ position: 'relative', zIndex: 1 }}>
-          <div style={{ fontSize: 56, marginBottom: 24 }}>🐾</div>
-          <h1 style={{ fontSize: 48, fontWeight: 700, marginBottom: 16, lineHeight: 1.1 }}>
-            Your pet deserves<br />the best care
-          </h1>
-          <p style={{ fontSize: 18, opacity: 0.85, lineHeight: 1.7, maxWidth: 400 }}>
-            Connect with veterinarians, groomers, trainers and track your pet's health — all in one beautiful platform.
-          </p>
-
-          <div style={{ marginTop: 48, display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {['🏥 Book vet appointments instantly', '📋 Track health records & vaccinations', '💬 Chat with service providers', '🚨 Emergency services at your fingertips'].map(item => (
-              <div key={item} style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 15, opacity: 0.9 }}>
-                {item}
-              </div>
-            ))}
-          </div>
+  return <main className="auth-shell">
+    <section className="auth-context" aria-label="About PawSync">
+      <div className="auth-brand"><span><PawPrint size={20} /></span>PawSync</div>
+      <div className="auth-context-copy">
+        <p className="auth-eyebrow">Pet care workspace</p>
+        <h1>Care coordination, without the paperwork.</h1>
+        <p>Keep appointments, health records and provider conversations organized in one secure place.</p>
+        <div className="auth-benefits">
+          <div><CalendarCheck size={19} /><span><strong>One care schedule</strong><small>Appointments and reminders stay together.</small></span></div>
+          <div><ClipboardCheck size={19} /><span><strong>Complete health history</strong><small>Records are available when care teams need them.</small></span></div>
+          <div><ShieldCheck size={19} /><span><strong>Controlled access</strong><small>You decide who can view sensitive pet information.</small></span></div>
         </div>
       </div>
+      <p className="auth-context-footer">PawSync care management</p>
+    </section>
 
-      {/* Right side — form */}
-      <div style={{
-        width: '100%',
-        maxWidth: 520,
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        padding: '60px 48px',
-        background: 'white',
-      }}>
-        <div className="animate-fadeIn">
-          <div style={{ marginBottom: 40 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 32 }}>
-              <span style={{ fontSize: 28 }}>🐾</span>
-              <span style={{ fontFamily: 'Clash Display', fontSize: 22, fontWeight: 700 }}>PawSync</span>
-            </div>
-            <h2 style={{ fontSize: 32, fontWeight: 700, marginBottom: 8 }}>Welcome back</h2>
-            <p style={{ color: 'var(--text-secondary)', fontSize: 15 }}>
-              Sign in to manage your pet's care
-            </p>
-          </div>
-
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            <div className="input-group">
-              <label className="input-label">Email address</label>
-              <input
-                className="input"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                required
-              />
-            </div>
-
-            <div className="input-group">
-              <label className="input-label">Password</label>
-              <div style={{ position: 'relative' }}>
-                <input
-                  className="input"
-                  type={showPassword ? 'text' : 'password'}
-                  placeholder="Enter your password"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  required
-                  style={{ paddingRight: 44 }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  style={{
-                    position: 'absolute', right: 12, top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: 'none', border: 'none',
-                    cursor: 'pointer', fontSize: 16, color: 'var(--text-muted)',
-                  }}
-                >
-                  {showPassword ? '🙈' : '👁️'}
-                </button>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <Link href="/reset-password" style={{ fontSize: 13, color: 'var(--primary)', textDecoration: 'none', fontWeight: 500 }}>
-                  Forgot password?
-                </Link>
-              </div>
-            </div>
-
-            <button type="submit" className="btn btn-primary btn-lg btn-full" disabled={isLoading}>
-              {isLoading ? <><div className="spinner" />Signing in...</> : 'Sign In →'}
-            </button>
-          </form>
-
-          <div className="divider" style={{ margin: '28px 0' }} />
-
-          <p style={{ textAlign: 'center', fontSize: 14, color: 'var(--text-secondary)' }}>
-            Don't have an account?{' '}
-            <Link href="/register" style={{ color: 'var(--primary)', fontWeight: 600, textDecoration: 'none' }}>
-              Create one free
-            </Link>
-          </p>
-        </div>
+    <section className="auth-form-panel">
+      <div className="auth-form-wrap">
+        <div className="auth-mobile-brand"><PawPrint size={19} /> PawSync</div>
+        <header className="auth-form-header"><p>Welcome back</p><h2>Sign in to your account</h2><span>Enter your account details to continue.</span></header>
+        <form onSubmit={handleSubmit} className="auth-form">
+          <label className="input-group"><span className="input-label">Email address</span><input className="input" type="email" autoComplete="email" placeholder="you@example.com" value={email} onChange={event => setEmail(event.target.value)} required /></label>
+          <label className="input-group"><span className="input-label">Password</span><span className="password-input"><input className="input" type={showPassword ? 'text' : 'password'} autoComplete="current-password" placeholder="Enter your password" value={password} onChange={event => setPassword(event.target.value)} required /><button type="button" onClick={() => setShowPassword(value => !value)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label>
+          <div className="auth-form-meta"><span /><Link href="/reset-password">Forgot password?</Link></div>
+          <button type="submit" className="btn btn-primary btn-lg btn-full" disabled={isLoading}>{isLoading ? <><span className="spinner" /> Signing in</> : 'Sign in'}</button>
+        </form>
+        <p className="auth-switch">New to PawSync? <Link href="/register">Create an account</Link></p>
       </div>
-    </div>
-  );
+    </section>
+  </main>;
 }

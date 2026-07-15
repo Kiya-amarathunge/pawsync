@@ -52,3 +52,12 @@ export async function sendProviderPendingEmail(email: string, name: string) {
     </div>`,
   });
 }
+
+export async function sendProviderInformationRequestEmail(email: string, name: string, note: string) {
+  await transporter.sendMail({
+    from: `"PawSync" <${process.env.SMTP_USER}>`,
+    to: email,
+    subject: 'More information is required for your PawSync application',
+    html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto"><h2 style="color:#1D9E75">Application update</h2><p>Hi ${name},</p><p>Our verification team needs the following information:</p><p style="padding:12px;background:#f3f4f6">${note}</p><p>Please sign in after approval support confirms your updated documents.</p></div>`,
+  });
+}

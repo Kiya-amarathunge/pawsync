@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
 import Appointment from '@/models/Appointment';
-import Notification from '@/models/Notification';
 import AuditLog from '@/models/AuditLog';
 import { verifyToken } from '@/lib/jwt';
+import { createNotification } from '@/lib/notifications';
 
 function getAdminFromRequest(req: NextRequest) {
   const authHeader = req.headers.get('authorization');
@@ -36,7 +36,7 @@ export async function POST(
 
     const { id } = await params;
 
-    const { resolution, notifyOwner, notifyProvider } =
+    const { resolution, notifyOwner, notifyProvider, action, refundAmount } =
       await req.json();
 
     if (!resolution) {
@@ -55,21 +55,28 @@ export async function POST(
       );
     }
 
+    if (action === 'cancel') appointment.status = 'cancelled';
+    if (action === 'refund') {
+      appointment.refundStatus = 'approved';
+      appointment.refundAmount = Math.min(Math.max(Number(refundAmount) || appointment.price || 0, 0), appointment.price || Number(refundAmount) || 0);
+    }
+    await appointment.save();
+
     if (notifyOwner) {
-      await Notification.create({
+      await createNotification({
         userId: appointment.ownerId,
         type: 'DISPUTE_RESOLVED',
         message: `Your dispute has been resolved: ${resolution}`,
-        isRead: false,
+        actionUrl: '/appointments',
       });
     }
 
     if (notifyProvider) {
-      await Notification.create({
+      await createNotification({
         userId: appointment.providerId,
         type: 'DISPUTE_RESOLVED',
         message: `A dispute has been resolved: ${resolution}`,
-        isRead: false,
+        actionUrl: '/provider/appointments',
       });
     }
 
@@ -78,7 +85,7 @@ export async function POST(
       actionType: 'DISPUTE_RESOLVED',
       affectedEntity: 'Appointment',
       entityId: appointment._id,
-      justification: resolution,
+      justification: `${resolution}; action=${action || 'mediate'}${action === 'refund' ? `; refund=${appointment.refundAmount}` : ''}`,
     });
 
     return NextResponse.json({
