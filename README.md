@@ -2,7 +2,7 @@
 
 **A full-stack pet care management and service coordination platform.**
 
-PawSync brings pet owners, veterinarians, pet service providers, and platform administrators into one system. It supports pet health management, provider discovery, appointment scheduling, telemedicine, realtime messaging, emergency assistance, community discussions, reviews, notifications, and administrative oversight.
+PawSync brings pet owners, veterinarians, pet service providers, and platform administrators into one system. It supports pet health management, provider discovery, appointment scheduling, realtime messaging, emergency assistance, community discussions, reviews, notifications, and administrative oversight.
 
 [![Next.js](https://img.shields.io/badge/Next.js-16-111111?logo=next.js)](https://nextjs.org/)
 [![React](https://img.shields.io/badge/React-19-149eca?logo=react)](https://react.dev/)
@@ -20,19 +20,18 @@ The system was developed as an undergraduate software engineering project based 
 | Role | Main capabilities |
 | --- | --- |
 | Pet owner | Manage pets and health records, find providers, book services, message professionals, review appointments, and access emergency assistance |
-| Veterinarian | Manage a professional profile, availability, patients, appointments, consultations, reviews, and earnings |
+| Veterinarian | Manage a professional profile, availability, patients, appointments, reviews, and earnings |
 | Service provider | Offer grooming, training, sitting, or boarding services and manage bookings, clients, availability, and finances |
 | Administrator | Verify providers, moderate content, resolve disputes, manage users, publish announcements, review analytics, and inspect audit/security information |
 
 ## Major Features
 
-- Secure registration, email verification, password reset, JWT authentication, role-based authorization, and inactive-session expiry
+- Secure registration, password reset, JWT authentication, role-based authorization, and inactive-session expiry
 - Pet profiles with weight, diet, vaccinations, medications, documents, charts, and controlled veterinarian sharing
 - AES-256-GCM encrypted health records with search, version history, access restrictions, and PDF downloads
 - Provider profiles with credentials, services, pricing, working hours, blocked dates, location, service radius, and favourites
 - Provider discovery with filtering, distance calculation, reviews, directions, availability, and direct booking
 - Appointment booking with availability validation, overlap detection, status transitions, rescheduling, cancellation, reminders, and history
-- Telemedicine consultation rooms with realtime signalling, notes, records, and consultation completion
 - Verified appointment reviews with ratings, photographs, provider responses, flagging, and moderation
 - Realtime owner-provider messaging with presence, typing indicators, read receipts, attachments, and history search
 - In-app and web-push notifications with user preferences, reminder categories, action links, and duplicate prevention
@@ -126,7 +125,7 @@ npm run dev
 | Variable | Purpose |
 | --- | --- |
 | `MONGODB_URI` | MongoDB connection string |
-| `JWT_SECRET` | Signs access, refresh, verification, and password-reset tokens |
+| `JWT_SECRET` | Signs access, refresh, and password-reset tokens |
 | `HEALTH_RECORD_ENCRYPTION_KEY` | Encrypts sensitive health-record data; do not change after storing records |
 | `CRON_SECRET` | Protects the scheduled reminder endpoint |
 | `NEXT_PUBLIC_APP_URL` | Public application address |

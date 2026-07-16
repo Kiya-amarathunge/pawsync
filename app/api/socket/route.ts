@@ -1,8 +1,17 @@
+/**
+ * PawSync API route: /api/socket
+ *
+ * Domain: realtime Socket.IO initialization.
+ * Methods: GET.
+ *
+ * Route handlers validate applicable input and access rules, perform the
+ * required database or service operation, and return JSON or file responses
+ * with meaningful HTTP status codes. Detailed checks remain close to the
+ * relevant handler so the business rules can be reviewed in context.
+ */
 import { NextResponse } from 'next/server';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
-import connectDB from '@/lib/db';
-import Consultation from '@/models/Consultation';
 import { verifyToken } from '@/lib/jwt';
 
 declare global {
@@ -41,28 +50,7 @@ export async function GET() {
       socket.on('user:typing', data => {
         if (String(data.senderId) === userId && data.receiverId) io.to(String(data.receiverId)).emit('user:typing', data);
       });
-      socket.on('webrtc:join-room', async (roomId: string) => {
-        await connectDB();
-        const consultation = await Consultation.findOne({
-          recordingMetadata: roomId,
-          status: 'active',
-          $or: [{ ownerId: socket.data.userId }, { vetId: socket.data.userId }],
-        });
-        if (!consultation) return socket.emit('webrtc:error', 'Consultation access denied');
-        socket.join(roomId);
-        socket.data.roomId = roomId;
-        socket.to(roomId).emit('webrtc:user-joined');
-      });
-      socket.on('webrtc:offer', data => socket.to(data.roomId).emit('webrtc:offer', data.offer));
-      socket.on('webrtc:answer', data => socket.to(data.roomId).emit('webrtc:answer', data.answer));
-      socket.on('webrtc:ice-candidate', data => socket.to(data.roomId).emit('webrtc:ice-candidate', data.candidate));
-      socket.on('consultation:chat', data => {
-        if (socket.data.roomId === data.roomId && typeof data.text === 'string' && data.text.length <= 1000) {
-          socket.to(data.roomId).emit('consultation:chat', { text: data.text, senderId: socket.data.userId, sentAt: new Date().toISOString() });
-        }
-      });
       socket.on('disconnect', () => {
-        if (socket.data.roomId) socket.to(socket.data.roomId).emit('webrtc:user-left');
         const remaining = Math.max(0, (global.onlineUsers?.get(userId) || 1) - 1);
         if (remaining === 0) {
           global.onlineUsers?.delete(userId);

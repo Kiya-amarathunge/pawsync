@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import DashboardLayout from '@/components/layout/DashboardLayout';
+import { Flag } from 'lucide-react';
 
 export default function ProviderReviewsPage() {
   const { token, user } = useAuth();
@@ -40,6 +41,19 @@ export default function ProviderReviewsPage() {
     } catch (err: any) {
       showToast(err.message, 'error');
     }
+  };
+
+  const flagReview = async (reviewId: string) => {
+    const reason = prompt('Why should this review be checked by an administrator?');
+    if (!reason?.trim()) return;
+    const res = await fetch(`/api/reviews/${reviewId}/flag`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ reason: reason.trim() }),
+    });
+    const data = await res.json();
+    showToast(res.ok ? data.message : data.error, res.ok ? 'success' : 'error');
+    if (res.ok) setReviews(current => current.filter(review => review._id !== reviewId));
   };
 
   const Stars = ({ rating }: { rating: number }) => (
@@ -116,6 +130,7 @@ export default function ProviderReviewsPage() {
                     <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{review.providerResponse}</p>
                   </div>
                 )}
+                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
                 {!review.providerResponse && (
                   respondingTo === review._id ? (
                     <div style={{ marginTop: 12 }}>
@@ -138,6 +153,10 @@ export default function ProviderReviewsPage() {
                     </button>
                   )
                 )}
+                  <button className="btn btn-ghost btn-sm" style={{ marginTop: 12 }} onClick={() => void flagReview(review._id)}>
+                    <Flag size={15} /> Report review
+                  </button>
+                </div>
               </div>
             ))}
           </div>

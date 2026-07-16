@@ -13,7 +13,7 @@ export interface TokenPayload extends JwtPayload {
   userId: string;
   role?: UserRole;
   email?: string;
-  purpose?: "verify-email" | "reset-password";
+  purpose?: "reset-password";
   adminRole?: "super_admin" | "content_moderator" | "verification_specialist";
 }
 

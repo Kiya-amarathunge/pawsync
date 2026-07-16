@@ -1,3 +1,14 @@
+/**
+ * PawSync API route: /api/auth/logout
+ *
+ * Domain: account authentication and session management.
+ * Methods: POST.
+ *
+ * Route handlers validate applicable input and access rules, perform the
+ * required database or service operation, and return JSON or file responses
+ * with meaningful HTTP status codes. Detailed checks remain close to the
+ * relevant handler so the business rules can be reviewed in context.
+ */
 import { NextResponse } from 'next/server';
 
 export async function POST() {

@@ -1,7 +1,103 @@
 'use client';
+
 import { useCallback, useEffect, useState } from 'react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
-interface FlaggedPost { _id: string; title: string; content: string; category: string; moderationReason?: string; authorId?: { name: string } }
-export default function ModerationPage() { const { token } = useAuth(); const { showToast } = useToast(); const [posts, setPosts] = useState<FlaggedPost[]>([]); const load = useCallback(async () => { if (!token) return; const response = await fetch('/api/forum/posts?flagged=true', { headers: { Authorization: `Bearer ${token}` } }); const data = await response.json(); setPosts(data.posts || []); }, [token]); useEffect(() => { void load(); }, [load]); const act = async (id: string, action: 'remove' | 'dismiss' | 'warn') => { const reason = action === 'warn' || action === 'remove' ? prompt('Reason / justification') : 'Report reviewed'; if (!reason) return; const response = await fetch(`/api/admin/moderation/post/${id}/${action}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(action === 'warn' ? { reason, notifyUser: true } : { justification: reason }) }); const data = await response.json(); showToast(response.ok ? data.message : data.error, response.ok ? 'success' : 'error'); if (response.ok) await load(); }; return <DashboardLayout><div style={{ marginBottom: 20 }}><h1 className="page-title">Content moderation</h1><p className="page-subtitle">Review reports, warn authors, remove violations or dismiss reports</p></div><div style={{ display: 'grid', gap: 11 }}>{posts.map(post => <article key={post._id} className="card" style={{ padding: 18, borderLeft: '4px solid #dc2626' }}><span className="badge badge-red">Flagged · {post.category}</span><h2 style={{ fontSize: 16, marginTop: 8 }}>{post.title}</h2><p style={{ marginTop: 5 }}>{post.content}</p><p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 5 }}>Reason: {post.moderationReason || 'User report'} · Author: {post.authorId?.name || 'Unknown'}</p><div style={{ display: 'flex', gap: 7, marginTop: 12 }}><button className="btn btn-danger btn-sm" onClick={() => void act(post._id, 'remove')}>Remove</button><button className="btn btn-secondary btn-sm" onClick={() => void act(post._id, 'warn')}>Warn</button><button className="btn btn-secondary btn-sm" onClick={() => void act(post._id, 'dismiss')}>Dismiss</button></div></article>)}{posts.length === 0 && <div className="empty-state"><p>No flagged content.</p></div>}</div></DashboardLayout>; }
+
+interface FlaggedPost {
+  _id: string;
+  title: string;
+  content: string;
+  category: string;
+  moderationReason?: string;
+  authorId?: { name: string };
+}
+
+interface FlaggedReview {
+  _id: string;
+  rating: number;
+  comment: string;
+  moderationReason?: string;
+  ownerId?: { name: string };
+  providerId?: { name: string };
+}
+
+export default function ModerationPage() {
+  const { token } = useAuth();
+  const { showToast } = useToast();
+  const [posts, setPosts] = useState<FlaggedPost[]>([]);
+  const [reviews, setReviews] = useState<FlaggedReview[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    if (!token) return;
+    const headers = { Authorization: `Bearer ${token}` };
+    const [postResponse, reviewResponse] = await Promise.all([
+      fetch('/api/forum/posts?flagged=true', { headers }),
+      fetch('/api/reviews?flagged=true', { headers }),
+    ]);
+    const [postData, reviewData] = await Promise.all([
+      postResponse.json(),
+      reviewResponse.json(),
+    ]);
+    setPosts(postResponse.ok ? postData.posts || [] : []);
+    setReviews(reviewResponse.ok ? reviewData.reviews || [] : []);
+    setLoading(false);
+  }, [token]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const act = async (type: 'post' | 'review', id: string, action: 'remove' | 'dismiss' | 'warn') => {
+    const reason = action === 'dismiss'
+      ? 'Report reviewed'
+      : prompt(action === 'warn' ? 'Reason for warning' : 'Reason for removal');
+    if (!reason) return;
+    const response = await fetch(`/api/admin/moderation/${type}/${id}/${action}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(action === 'warn'
+        ? { reason, notifyUser: true }
+        : { justification: reason }),
+    });
+    const data = await response.json();
+    showToast(response.ok ? data.message : data.error, response.ok ? 'success' : 'error');
+    if (response.ok) await load();
+  };
+
+  const actions = (type: 'post' | 'review', id: string) => (
+    <div style={{ display: 'flex', gap: 7, marginTop: 12, flexWrap: 'wrap' }}>
+      <button className="btn btn-danger btn-sm" onClick={() => void act(type, id, 'remove')}>Remove</button>
+      <button className="btn btn-secondary btn-sm" onClick={() => void act(type, id, 'warn')}>Warn author</button>
+      <button className="btn btn-secondary btn-sm" onClick={() => void act(type, id, 'dismiss')}>Dismiss report</button>
+    </div>
+  );
+
+  return <DashboardLayout>
+    <div style={{ marginBottom: 20 }}>
+      <h1 className="page-title">Content moderation</h1>
+      <p className="page-subtitle">Review reported forum posts and provider reviews</p>
+    </div>
+    {loading ? <div className="skeleton" style={{ height: 120 }} /> : <div style={{ display: 'grid', gap: 11 }}>
+      {reviews.map(review => <article key={review._id} className="card" style={{ padding: 18, borderLeft: '4px solid #dc2626' }}>
+        <span className="badge badge-red">Flagged review</span>
+        <p style={{ marginTop: 9, color: '#f59e0b' }}>{'★'.repeat(review.rating)}{'☆'.repeat(5 - review.rating)}</p>
+        <p style={{ marginTop: 7 }}>{review.comment}</p>
+        <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 6 }}>
+          Reason: {review.moderationReason || 'Provider report'} · Author: {review.ownerId?.name || 'Unknown'} · Provider: {review.providerId?.name || 'Unknown'}
+        </p>
+        {actions('review', review._id)}
+      </article>)}
+      {posts.map(post => <article key={post._id} className="card" style={{ padding: 18, borderLeft: '4px solid #dc2626' }}>
+        <span className="badge badge-red">Flagged · {post.category}</span>
+        <h2 style={{ fontSize: 16, marginTop: 8 }}>{post.title}</h2>
+        <p style={{ marginTop: 5 }}>{post.content}</p>
+        <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 5 }}>
+          Reason: {post.moderationReason || 'User report'} · Author: {post.authorId?.name || 'Unknown'}
+        </p>
+        {actions('post', post._id)}
+      </article>)}
+      {posts.length === 0 && reviews.length === 0 && <div className="empty-state"><p>No flagged content.</p></div>}
+    </div>}
+  </DashboardLayout>;
+}

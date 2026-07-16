@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Line } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend } from 'chart.js';
-import { FileDown, FilePlus2, Pencil, Plus, Share2, Syringe, Trash2, Upload, X } from 'lucide-react';
+import { FileDown, FilePlus2, Pencil, Plus, Scale, Share2, Syringe, Trash2, Upload, X } from 'lucide-react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
@@ -16,6 +16,7 @@ interface Vaccination { _id: string; vaccine: string; date: string; nextDueDate?
 interface Medication { _id: string; medication: string; dosage: string; frequency: string; startDate: string; endDate?: string }
 interface Pet {
   _id: string; name: string; species: string; breed: string; birthDate?: string; weight?: number;
+  weightHistory?: Array<{ _id?: string; weight: number; date: string }>;
   microchipNumber?: string; dietaryInfo?: string; photos: string[]; documents: PetDocument[];
   vaccinationHistory: Vaccination[]; medicationSchedules: Medication[];
 }
@@ -37,6 +38,7 @@ export default function PetsPage() {
   const [medication, setMedication] = useState({ medication: '', dosage: '', frequency: '', startDate: '', endDate: '', nextReminderAt: '' });
   const [vetEmail, setVetEmail] = useState('');
   const [chartData, setChartData] = useState<ChartData | null>(null);
+  const [weightEntry, setWeightEntry] = useState({ weight: '', date: new Date().toISOString().slice(0, 10) });
 
   const selected = pets.find(pet => pet._id === selectedId) || null;
   const headers = { Authorization: `Bearer ${token}` };
@@ -128,6 +130,22 @@ export default function PetsPage() {
     if (response.ok) { setMedication({ medication: '', dosage: '', frequency: '', startDate: '', endDate: '', nextReminderAt: '' }); await loadPets(); }
   };
 
+  const addWeight = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!selected) return;
+    const response = await fetch(`/api/pets/${selected._id}/weight`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ weight: Number(weightEntry.weight), date: weightEntry.date }),
+    });
+    const data = await response.json();
+    showToast(response.ok ? data.message : data.error, response.ok ? 'success' : 'error');
+    if (response.ok) {
+      setWeightEntry({ weight: '', date: new Date().toISOString().slice(0, 10) });
+      await loadPets();
+    }
+  };
+
   const shareRecords = async (event: FormEvent) => {
     event.preventDefault(); if (!selected) return;
     const response = await fetch(`/api/pets/${selected._id}/share`, {
@@ -178,7 +196,17 @@ export default function PetsPage() {
           </div>
         </section>
 
-        {chartData?.labels.length ? <section className="card" style={{ padding: 20 }}><h3 style={{ fontSize: 16, marginBottom: 12 }}>Weight history</h3><div style={{ height: 230 }}><Line data={chartData} options={{ maintainAspectRatio: false, responsive: true }} /></div></section> : null}
+        <section className="card" style={{ padding: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <div><h3 style={{ fontSize: 16, display: 'flex', gap: 8, alignItems: 'center' }}><Scale size={18} /> Weight history</h3><p style={{ color: 'var(--text-secondary)', fontSize: 13, marginTop: 4 }}>Record changes without editing the full pet profile.</p></div>
+            <form onSubmit={addWeight} style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <input className="input" style={{ width: 120 }} type="number" min="0.1" max="500" step="0.1" placeholder="Weight (kg)" value={weightEntry.weight} onChange={event => setWeightEntry(value => ({ ...value, weight: event.target.value }))} required />
+              <input className="input" style={{ width: 155 }} type="date" max={new Date().toISOString().slice(0, 10)} value={weightEntry.date} onChange={event => setWeightEntry(value => ({ ...value, date: event.target.value }))} required />
+              <button className="btn btn-primary btn-sm">Add weight</button>
+            </form>
+          </div>
+          {chartData?.labels.length ? <div style={{ height: 230, marginTop: 18 }}><Line data={{ ...chartData, labels: chartData.labels.map(label => new Date(label).toLocaleDateString()) }} options={{ maintainAspectRatio: false, responsive: true }} /></div> : <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 18 }}>No weight entries recorded yet.</p>}
+        </section>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
           <form onSubmit={addVaccination} className="card" style={{ padding: 18, display: 'grid', gap: 10 }}><h3 style={{ fontSize: 16, display: 'flex', gap: 8 }}><Syringe size={18} /> Vaccination</h3><input className="input" placeholder="Vaccine" value={vaccination.vaccine} onChange={event => setVaccination(value => ({ ...value, vaccine: event.target.value }))} required /><input className="input" type="date" value={vaccination.date} onChange={event => setVaccination(value => ({ ...value, date: event.target.value }))} required /><input className="input" type="date" value={vaccination.nextDueDate} onChange={event => setVaccination(value => ({ ...value, nextDueDate: event.target.value }))} /><button className="btn btn-primary btn-sm">Add vaccination</button></form>

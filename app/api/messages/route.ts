@@ -1,5 +1,17 @@
+/**
+ * PawSync API route: /api/messages
+ *
+ * Domain: owner-provider messaging and attachments.
+ * Methods: GET, POST.
+ *
+ * Route handlers validate applicable input and access rules, perform the
+ * required database or service operation, and return JSON or file responses
+ * with meaningful HTTP status codes. Detailed checks remain close to the
+ * relevant handler so the business rules can be reviewed in context.
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import mongoose from 'mongoose';
 import connectDB from '@/lib/db';
 import Message from '@/models/Message';
 import User from '@/models/User';
@@ -14,16 +26,20 @@ export async function GET(req: NextRequest) {
     await connectDB();
     const user = getRequestUser(req);
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!mongoose.isValidObjectId(user.userId)) {
+      return NextResponse.json({ error: 'Invalid user session' }, { status: 401 });
+    }
+    const userId = new mongoose.Types.ObjectId(user.userId);
     const ids = await Message.aggregate([
-      { $match: { $or: [{ senderId: user.userId }, { receiverId: user.userId }] } },
-      { $project: { otherId: { $cond: [{ $eq: ['$senderId', { $toObjectId: user.userId }] }, '$receiverId', '$senderId'] } } },
+      { $match: { $or: [{ senderId: userId }, { receiverId: userId }] } },
+      { $project: { otherId: { $cond: [{ $eq: ['$senderId', userId] }, '$receiverId', '$senderId'] } } },
       { $group: { _id: '$otherId' } },
     ]);
     const conversations = await Promise.all(ids.map(async ({ _id }) => {
       const [otherUser, lastMessage, unreadCount] = await Promise.all([
         User.findById(_id).select('name role').lean(),
-        Message.findOne({ $or: [{ senderId: user.userId, receiverId: _id }, { senderId: _id, receiverId: user.userId }] }).sort({ createdAt: -1 }).lean(),
-        Message.countDocuments({ senderId: _id, receiverId: user.userId, isRead: false }),
+        Message.findOne({ $or: [{ senderId: userId, receiverId: _id }, { senderId: _id, receiverId: userId }] }).sort({ createdAt: -1 }).lean(),
+        Message.countDocuments({ senderId: _id, receiverId: userId, isRead: false }),
       ]);
       return { otherId: String(_id), otherUser, lastMessage, unreadCount };
     }));

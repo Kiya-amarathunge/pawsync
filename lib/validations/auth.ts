@@ -15,6 +15,26 @@ export const registerSchema = z.object({
   businessName: z.string().optional(),
   businessRegistrationNumber: z.string().optional(),
   serviceType: z.array(z.string()).optional(),
+}).superRefine((data, context) => {
+  if (data.role === "veterinarian") {
+    if (!data.licenseNumber?.trim()) {
+      context.addIssue({ code: "custom", path: ["licenseNumber"], message: "Veterinary license number is required" });
+    }
+    if (!data.businessRegistrationNumber?.trim()) {
+      context.addIssue({ code: "custom", path: ["businessRegistrationNumber"], message: "Business registration number is required" });
+    }
+  }
+  if (data.role === "service_provider") {
+    if (!data.businessName?.trim()) {
+      context.addIssue({ code: "custom", path: ["businessName"], message: "Business name is required" });
+    }
+    if (!data.businessRegistrationNumber?.trim()) {
+      context.addIssue({ code: "custom", path: ["businessRegistrationNumber"], message: "Business registration number is required" });
+    }
+    if (!data.serviceType?.length) {
+      context.addIssue({ code: "custom", path: ["serviceType"], message: "Select at least one service" });
+    }
+  }
 });
 
 export const loginSchema = z.object({

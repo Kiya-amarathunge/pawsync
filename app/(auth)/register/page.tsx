@@ -6,7 +6,7 @@ import Link from 'next/link';
 
 const roles = [
   { value: 'pet_owner', label: 'Pet Owner', icon: '🐶', desc: 'Book services and track your pet\'s health' },
-  { value: 'veterinarian', label: 'Veterinarian', icon: '🏥', desc: 'Offer consultations and manage patients' },
+  { value: 'veterinarian', label: 'Veterinarian', icon: '🏥', desc: 'Provide clinical care and manage patients' },
   { value: 'service_provider', label: 'Service Provider', icon: '✂️', desc: 'Grooming, training, boarding and more' },
 ];
 
@@ -166,7 +166,7 @@ export default function RegisterPage() {
               </h2>
               <p style={{ color: 'var(--text-secondary)', marginBottom: 24, fontSize: 14 }}>
                 {form.role === 'pet_owner'
-                  ? 'Your account is ready to be created. Check your email after signing up!'
+                  ? 'Your account is ready to be created. You can sign in immediately after registration.'
                   : 'These details will be verified by our admin team before your account is activated.'}
               </p>
 
@@ -242,7 +242,7 @@ export default function RegisterPage() {
                     <p>📱 Phone: <strong style={{ color: 'var(--text-primary)' }}>{form.phoneNumber}</strong></p>
                   </div>
                   <p style={{ fontSize: 13, color: 'var(--primary)', marginTop: 12, fontWeight: 500 }}>
-                    ✉️ A verification email will be sent to {form.email}. Click the link to activate your account.
+                    Your account will be active immediately after registration.
                   </p>
                 </div>
               )}

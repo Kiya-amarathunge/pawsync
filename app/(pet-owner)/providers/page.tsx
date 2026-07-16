@@ -15,7 +15,7 @@ interface Provider {
   acceptanceRate: number; responseTimeMinutes: number | null; distanceKm: number | null; isFavorite: boolean;
 }
 
-const serviceTypes = ['all', 'veterinary', 'telemedicine', 'grooming', 'training', 'boarding', 'sitting'];
+const serviceTypes = ['all', 'veterinary', 'grooming', 'training', 'boarding', 'sitting'];
 
 export default function ProvidersPage() {
   const { token } = useAuth();

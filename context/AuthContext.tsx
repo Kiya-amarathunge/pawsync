@@ -21,6 +21,9 @@ interface AuthContextType {
 
 const INACTIVITY_LIMIT_MS = 30 * 60 * 1000;
 const AuthContext = createContext<AuthContextType | null>(null);
+const TOKEN_KEY = 'pawsync_token';
+const USER_KEY = 'pawsync_user';
+const ACTIVITY_KEY = 'pawsync_last_activity';
 
 // JWT expiry is read on the client only to schedule a refresh. The server still
 // performs the authoritative signature and expiry validation.
@@ -42,30 +45,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const clearSession = useCallback(() => {
     setUser(null);
     setToken(null);
-    localStorage.removeItem('pawsync_token');
-    localStorage.removeItem('pawsync_user');
-    localStorage.removeItem('pawsync_last_activity');
+    sessionStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(USER_KEY);
+    sessionStorage.removeItem(ACTIVITY_KEY);
   }, []);
 
-  // Restore a previous browser session unless it has exceeded the inactivity limit.
+  // Session storage is isolated per browser tab, allowing evaluator accounts with
+  // different roles to remain open at the same time.
   useEffect(() => {
     try {
-      const savedToken = localStorage.getItem('pawsync_token');
-      const savedUser = localStorage.getItem('pawsync_user');
-      const lastActivity = Number(localStorage.getItem('pawsync_last_activity') || 0);
+      // Remove the old shared-tab session format instead of restoring the wrong role.
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(USER_KEY);
+      localStorage.removeItem(ACTIVITY_KEY);
+      const savedToken = sessionStorage.getItem(TOKEN_KEY);
+      const savedUser = sessionStorage.getItem(USER_KEY);
+      const lastActivity = Number(sessionStorage.getItem(ACTIVITY_KEY) || 0);
       const isInactive = lastActivity > 0 && Date.now() - lastActivity > INACTIVITY_LIMIT_MS;
       if (savedToken && savedUser && !isInactive) {
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setToken(savedToken);
         setUser(JSON.parse(savedUser) as User);
       } else if (isInactive) {
-        localStorage.removeItem('pawsync_token');
-        localStorage.removeItem('pawsync_user');
-        localStorage.removeItem('pawsync_last_activity');
+        sessionStorage.removeItem(TOKEN_KEY);
+        sessionStorage.removeItem(USER_KEY);
+        sessionStorage.removeItem(ACTIVITY_KEY);
       }
     } catch {
-      localStorage.removeItem('pawsync_token');
-      localStorage.removeItem('pawsync_user');
+      sessionStorage.removeItem(TOKEN_KEY);
+      sessionStorage.removeItem(USER_KEY);
     } finally {
       setIsLoading(false);
     }
@@ -78,7 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const markActivity = () => {
       const now = Date.now();
       if (now - lastWrite > 15_000) {
-        localStorage.setItem('pawsync_last_activity', String(now));
+        sessionStorage.setItem(ACTIVITY_KEY, String(now));
         lastWrite = now;
       }
     };
@@ -86,7 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     events.forEach(event => window.addEventListener(event, markActivity, { passive: true }));
     markActivity();
     const timer = window.setInterval(() => {
-      const lastActivity = Number(localStorage.getItem('pawsync_last_activity') || 0);
+      const lastActivity = Number(sessionStorage.getItem(ACTIVITY_KEY) || 0);
       if (lastActivity && Date.now() - lastActivity > INACTIVITY_LIMIT_MS) {
         clearSession();
         router.replace('/login?reason=inactive');
@@ -103,7 +111,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!token) return;
     const refresh = async () => {
       if (tokenExpiresAt(token) - Date.now() > 5 * 60 * 1000) return;
-      const response = await fetch('/api/auth/refresh', { method: 'POST' });
+      const response = await fetch('/api/auth/refresh', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (!response.ok) {
         clearSession();
         router.replace('/login?reason=expired');
@@ -111,7 +122,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       const data = await response.json();
       setToken(data.accessToken);
-      localStorage.setItem('pawsync_token', data.accessToken);
+      sessionStorage.setItem(TOKEN_KEY, data.accessToken);
     };
     void refresh();
     const timer = window.setInterval(() => void refresh(), 60_000);
@@ -121,9 +132,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const persistSession = (userData: User, accessToken: string) => {
     setUser(userData);
     setToken(accessToken);
-    localStorage.setItem('pawsync_token', accessToken);
-    localStorage.setItem('pawsync_user', JSON.stringify(userData));
-    localStorage.setItem('pawsync_last_activity', String(Date.now()));
+    sessionStorage.setItem(TOKEN_KEY, accessToken);
+    sessionStorage.setItem(USER_KEY, JSON.stringify(userData));
+    sessionStorage.setItem(ACTIVITY_KEY, String(Date.now()));
   };
 
   const redirectForRole = (role: User['role']) => {
@@ -162,7 +173,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(current => {
       if (!current) return current;
       const updated = { ...current, ...updates };
-      localStorage.setItem('pawsync_user', JSON.stringify(updated));
+      sessionStorage.setItem(USER_KEY, JSON.stringify(updated));
       return updated;
     });
   };

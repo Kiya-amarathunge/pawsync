@@ -1,3 +1,14 @@
+/**
+ * PawSync API route: /api/auth/login
+ *
+ * Domain: account authentication and session management.
+ * Methods: POST.
+ *
+ * Route handlers validate applicable input and access rules, perform the
+ * required database or service operation, and return JSON or file responses
+ * with meaningful HTTP status codes. Detailed checks remain close to the
+ * relevant handler so the business rules can be reviewed in context.
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
 import User from '@/models/User';
@@ -36,13 +47,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!user.isVerified) {
-      return NextResponse.json(
-        { error: 'Please verify your email address before logging in' },
-        { status: 403 }
-      );
-    }
-
     if (!user.isActive) {
       return NextResponse.json(
         { error: 'Your account is pending admin approval. You will be notified by email.' },
@@ -65,6 +69,8 @@ export async function POST(req: NextRequest) {
     };
     const accessToken = signAccessToken(tokenPayload);
     const refreshToken = signRefreshToken(tokenPayload);
+    // Email verification is no longer required. This updates older accounts too.
+    user.isVerified = true;
     user.lastLoginAt = new Date();
     await user.save();
 

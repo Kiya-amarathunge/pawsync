@@ -1,3 +1,14 @@
+/**
+ * PawSync API route: /api/appointments
+ *
+ * Domain: appointment booking, scheduling, and status management.
+ * Methods: GET, POST.
+ *
+ * Route handlers validate applicable input and access rules, perform the
+ * required database or service operation, and return JSON or file responses
+ * with meaningful HTTP status codes. Detailed checks remain close to the
+ * relevant handler so the business rules can be reviewed in context.
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import connectDB from '@/lib/db';
@@ -12,7 +23,7 @@ import { createNotification } from '@/lib/notifications';
 
 const bookingSchema = z.object({
   petId: z.string().min(1), providerId: z.string().min(1),
-  serviceType: z.enum(['veterinary', 'grooming', 'training', 'boarding', 'telemedicine']),
+  serviceType: z.enum(['veterinary', 'grooming', 'training', 'boarding']),
   dateTime: z.string().datetime(), duration: z.number().int().min(15).max(480).optional(),
   notes: z.string().trim().max(2000).optional().default(''),
 });
@@ -53,7 +64,7 @@ export async function POST(req: NextRequest) {
     if (!pet) return NextResponse.json({ error: 'Pet not found' }, { status: 404 });
     const provider = serviceProvider || veterinarian;
     if (!provider) return NextResponse.json({ error: 'Verified provider not found' }, { status: 404 });
-    const serviceTypes = serviceProvider?.serviceType || ['veterinary', 'telemedicine'];
+    const serviceTypes = serviceProvider?.serviceType || ['veterinary'];
     if (!serviceTypes.includes(data.serviceType)) return NextResponse.json({ error: 'Provider does not offer this service' }, { status: 400 });
     const pricing = provider.pricing?.find((item: { service: string }) => item.service === data.serviceType);
     const duration = pricing?.duration || data.duration || 60;
