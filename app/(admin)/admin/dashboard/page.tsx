@@ -18,12 +18,12 @@ export default function AdminDashboardPage() {
   }, [token]);
 
   const statCards = stats ? [
-    { label: 'Total Users', value: stats.totalUsers, icon: '👥', color: 'var(--blue)', bg: 'var(--blue-light)' },
-    { label: 'New Today', value: stats.newUsersToday, icon: '🆕', color: 'var(--primary)', bg: 'var(--primary-light)' },
-    { label: 'Pending Verifications', value: stats.pendingVerifications, icon: '⏳', color: 'var(--accent)', bg: 'var(--accent-light)', alert: stats.pendingVerifications > 0 },
-    { label: 'Flagged Content', value: stats.flaggedPosts + stats.flaggedReviews, icon: '🚩', color: '#dc2626', bg: '#fee2e2', alert: (stats.flaggedPosts + stats.flaggedReviews) > 0 },
-    { label: "Today's Appointments", value: stats.todayAppointments, icon: '📅', color: '#7c3aed', bg: '#f3f0ff' },
-    { label: 'Pending Bookings', value: stats.pendingAppointments, icon: '📋', color: '#0891b2', bg: '#e0f7fa' },
+    { label: 'Total Users', value: stats.totalUsers, icon: '👥', color: 'var(--blue)', bg: 'var(--blue-light)', href: '/admin/users' },
+    { label: 'New Today', value: stats.newUsersToday, icon: '🆕', color: 'var(--primary)', bg: 'var(--primary-light)', href: '/admin/users' },
+    { label: 'Pending Verifications', value: stats.pendingVerifications, icon: '⏳', color: 'var(--accent)', bg: 'var(--accent-light)', alert: stats.pendingVerifications > 0, href: '/admin/verifications' },
+    { label: 'Flagged Content', value: stats.flaggedPosts + stats.flaggedReviews, icon: '🚩', color: '#dc2626', bg: '#fee2e2', alert: (stats.flaggedPosts + stats.flaggedReviews) > 0, href: '/admin/moderation' },
+    { label: "Today's Appointments", value: stats.todayAppointments, icon: '📅', color: '#7c3aed', bg: '#f3f0ff', href: '/admin/analytics' },
+    { label: 'Pending Bookings', value: stats.pendingAppointments, icon: '📋', color: '#0891b2', bg: '#e0f7fa', href: '/admin/analytics' },
   ] : [];
 
   const quickLinks = [
@@ -45,9 +45,10 @@ export default function AdminDashboardPage() {
             [1, 2, 3, 4, 5, 6].map(i => <div key={i} className="skeleton" style={{ height: 100, borderRadius: 'var(--radius-lg)' }} />)
           ) : (
             statCards.map(stat => (
-              <div key={stat.label} className="stat-card" style={{
+              <Link key={stat.label} href={stat.href} className="stat-card card-interactive" aria-label={`Open ${stat.label}`} style={{
                 display: 'flex', alignItems: 'center', gap: 16,
                 border: stat.alert ? `1px solid ${stat.color}40` : '1px solid var(--border)',
+                color: 'inherit', textDecoration: 'none',
               }}>
                 <div style={{ width: 52, height: 52, borderRadius: 'var(--radius-md)', background: stat.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>
                   {stat.icon}
@@ -56,7 +57,7 @@ export default function AdminDashboardPage() {
                   <p style={{ fontSize: 28, fontWeight: 700, color: stat.color, lineHeight: 1 }}>{stat.value}</p>
                   <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{stat.label}</p>
                 </div>
-              </div>
+              </Link>
             ))
           )}
         </div>

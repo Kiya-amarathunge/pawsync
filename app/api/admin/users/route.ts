@@ -1,3 +1,14 @@
+/**
+ * PawSync API route: /api/admin/users
+ *
+ * Domain: administration, moderation, reporting, and platform oversight.
+ * Methods: GET.
+ *
+ * Route handlers validate applicable input and access rules, perform the
+ * required database or service operation, and return JSON or file responses
+ * with meaningful HTTP status codes. Detailed checks remain close to the
+ * relevant handler so the business rules can be reviewed in context.
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
 import User from '@/models/User';

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Activity, BadgeCheck, BarChart3, Bell, CalendarDays, CircleDollarSign, ClipboardList, FileClock, Home, LogOut, Megaphone, MessageSquare, PawPrint, Search, Settings, ShieldAlert, ShieldCheck, Siren, Star, Stethoscope, Users, X, type LucideIcon } from 'lucide-react';
+import { Activity, BadgeCheck, BarChart3, Bell, CalendarDays, CircleDollarSign, CircleHelp, ClipboardList, FileClock, Home, LogOut, Megaphone, MessageSquare, PawPrint, Search, Settings, ShieldAlert, ShieldCheck, Siren, Star, Users, X, type LucideIcon } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
 interface NavItem { href: string; icon: LucideIcon; label: string }
@@ -10,14 +10,14 @@ interface NavSection { section: string; items: NavItem[] }
 
 const petOwnerNav: NavSection[] = [
   { section: 'Workspace', items: [{ href: '/dashboard', icon: Home, label: 'Dashboard' }, { href: '/pets', icon: PawPrint, label: 'My Pets' }, { href: '/health-records', icon: ClipboardList, label: 'Health Records' }] },
-  { section: 'Care', items: [{ href: '/appointments', icon: CalendarDays, label: 'Appointments' }, { href: '/providers', icon: Search, label: 'Find Providers' }, { href: '/consultations', icon: Stethoscope, label: 'Telemedicine' }] },
-  { section: 'Connect', items: [{ href: '/messages', icon: MessageSquare, label: 'Messages' }, { href: '/forum', icon: Users, label: 'Community' }, { href: '/emergency', icon: Siren, label: 'Emergency' }, { href: '/notifications', icon: Bell, label: 'Notifications' }] },
+  { section: 'Care', items: [{ href: '/appointments', icon: CalendarDays, label: 'Appointments' }, { href: '/providers', icon: Search, label: 'Find Providers' }] },
+  { section: 'Connect', items: [{ href: '/messages', icon: MessageSquare, label: 'Messages' }, { href: '/disputes', icon: CircleHelp, label: 'Disputes' }, { href: '/forum', icon: Users, label: 'Community' }, { href: '/emergency', icon: Siren, label: 'Emergency' }, { href: '/notifications', icon: Bell, label: 'Notifications' }] },
 ];
 
 const providerNav: NavSection[] = [
   { section: 'Workspace', items: [{ href: '/provider/dashboard', icon: Home, label: 'Dashboard' }, { href: '/provider/appointments', icon: CalendarDays, label: 'Appointments' }, { href: '/provider/clients', icon: PawPrint, label: 'Clients & Patients' }] },
   { section: 'Practice', items: [{ href: '/provider/profile', icon: Settings, label: 'Profile & Services' }, { href: '/provider/availability', icon: FileClock, label: 'Availability' }, { href: '/provider/reviews', icon: Star, label: 'Reviews' }, { href: '/provider/earnings', icon: CircleDollarSign, label: 'Earnings' }] },
-  { section: 'Connect', items: [{ href: '/messages', icon: MessageSquare, label: 'Messages' }, { href: '/notifications', icon: Bell, label: 'Notifications' }] },
+  { section: 'Connect', items: [{ href: '/messages', icon: MessageSquare, label: 'Messages' }, { href: '/disputes', icon: CircleHelp, label: 'Disputes' }, { href: '/notifications', icon: Bell, label: 'Notifications' }] },
 ];
 
 const adminNav: NavSection[] = [

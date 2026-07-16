@@ -1,19 +1,51 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { useToast } from '@/context/ToastContext';
 import DashboardLayout from '@/components/layout/DashboardLayout';
-import { Download } from 'lucide-react';
+import { Download, LoaderCircle } from 'lucide-react';
 
 export default function EarningsPage() {
   const { token } = useAuth();
+  const { showToast } = useToast();
   const [earnings, setEarnings] = useState<any>(null);
   const [period, setPeriod] = useState('monthly');
   const [isLoading, setIsLoading] = useState(true);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const downloadReport = async () => {
-    const response = await fetch('/api/provider/dashboard/report', { headers: { Authorization: `Bearer ${token}` } });
-    if (!response.ok) return;
-    const url = URL.createObjectURL(await response.blob()); const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'pawsync-financial-report.pdf'; anchor.click(); URL.revokeObjectURL(url);
+    if (!token || isDownloading) return;
+
+    setIsDownloading(true);
+    try {
+      const response = await fetch('/api/provider/dashboard/report', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new Error(data?.error || 'Unable to generate financial report');
+      }
+
+      const blob = await response.blob();
+      if (!blob.type.includes('application/pdf')) {
+        throw new Error('The server did not return a valid PDF report');
+      }
+
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `pawsync-financial-report-${new Date().toISOString().slice(0, 10)}.pdf`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      showToast('Financial report downloaded', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Unable to download financial report', 'error');
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   useEffect(() => {
@@ -32,7 +64,7 @@ export default function EarningsPage() {
             <h1 className="page-title">Earnings</h1>
             <p className="page-subtitle">Track your revenue and financial performance</p>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}><button className="btn btn-secondary" onClick={() => void downloadReport()}><Download size={17} /> Financial report</button><select className="input" style={{ maxWidth: 160 }} value={period} onChange={e => setPeriod(e.target.value)}>
+          <div style={{ display: 'flex', gap: 8 }}><button className="btn btn-secondary" disabled={isDownloading || !token} onClick={() => void downloadReport()}>{isDownloading ? <LoaderCircle className="spin" size={17} /> : <Download size={17} />} {isDownloading ? 'Preparing report...' : 'Financial report'}</button><select className="input" style={{ maxWidth: 160 }} value={period} onChange={e => setPeriod(e.target.value)}>
             <option value="daily">Daily</option>
             <option value="weekly">Weekly</option>
             <option value="monthly">Monthly</option>

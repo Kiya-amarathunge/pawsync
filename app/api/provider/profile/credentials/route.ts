@@ -1,3 +1,14 @@
+/**
+ * PawSync API route: /api/provider/profile/credentials
+ *
+ * Domain: provider profiles, dashboards, and operations.
+ * Methods: POST.
+ *
+ * Route handlers validate applicable input and access rules, perform the
+ * required database or service operation, and return JSON or file responses
+ * with meaningful HTTP status codes. Detailed checks remain close to the
+ * relevant handler so the business rules can be reviewed in context.
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import { mkdir, writeFile } from 'fs/promises';
 import crypto from 'crypto';
@@ -21,7 +32,7 @@ export async function POST(req: NextRequest) {
     const directory = path.join(process.cwd(), 'storage', 'provider-credentials');
     await mkdir(directory, { recursive: true });
     await writeFile(path.join(directory, storageKey), Buffer.from(await file.arrayBuffer()));
-    const update = { $push: { verificationDocuments: storageKey }, $set: { isVerified: false } };
+    const update = { $push: { verificationDocuments: storageKey } };
     const profile = user.role === 'veterinarian'
       ? await Veterinarian.findOneAndUpdate({ vetId: user.userId }, update, { new: true })
       : await ServiceProvider.findOneAndUpdate({ providerId: user.userId }, update, { new: true });

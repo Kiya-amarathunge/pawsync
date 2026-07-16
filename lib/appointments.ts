@@ -1,4 +1,5 @@
 export interface AppointmentInterval {
+  // The start time and duration are sufficient to calculate the end time.
   dateTime: Date;
   duration: number;
 }
@@ -13,7 +14,8 @@ export function intervalsOverlap(
   candidateDuration: number,
   existing: AppointmentInterval
 ) {
-  // Half-open intervals allow one appointment to begin exactly when another ends.
+  // Appointments are treated as half-open intervals: [start, end). Therefore,
+  // a 10:00-11:00 appointment does not conflict with one starting at 11:00.
   const candidateEnd = candidateStart.getTime() + candidateDuration * 60_000;
   const existingStart = existing.dateTime.getTime();
   const existingEnd = existingStart + existing.duration * 60_000;
@@ -21,7 +23,8 @@ export function intervalsOverlap(
 }
 
 export function isWithinAvailability(start: Date, duration: number, window: AvailabilityWindow) {
-  // Converting both times to minutes makes the boundary comparison date-independent.
+  // Converting clock values to minutes avoids complicated string comparisons
+  // and confirms that the full appointment, not only its start, fits the window.
   const [startHour, startMinute] = window.startTime.split(':').map(Number);
   const [endHour, endMinute] = window.endTime.split(':').map(Number);
   const appointmentMinute = start.getHours() * 60 + start.getMinutes();

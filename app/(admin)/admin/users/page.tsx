@@ -109,7 +109,6 @@ export default function AdminUsersPage() {
                     <td>
                       {user.isSuspended ? <span className="badge badge-red">Suspended</span> :
                        !user.isActive ? <span className="badge badge-orange">Inactive</span> :
-                       !user.isVerified ? <span className="badge badge-gray">Unverified</span> :
                        <span className="badge badge-green">Active</span>}
                     </td>
                     <td style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{new Date(user.registrationDate).toLocaleDateString()}</td>

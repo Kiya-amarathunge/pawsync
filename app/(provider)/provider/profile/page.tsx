@@ -14,7 +14,7 @@ export default function ProviderProfilePage() {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ businessName: '', businessDescription: '', specialization: '', credentials: '', yearsOfExperience: '', address: '', lat: '', lng: '', serviceRadiusKm: '50', serviceType: [] as string[] });
   const [services, setServices] = useState<Service[]>([]);
-  const availableTypes = user?.role === 'veterinarian' ? ['veterinary', 'telemedicine'] : ['grooming', 'training', 'sitting', 'boarding'];
+  const availableTypes = user?.role === 'veterinarian' ? ['veterinary'] : ['grooming', 'training', 'sitting', 'boarding'];
 
   useEffect(() => {
     if (!token) return;
@@ -23,7 +23,7 @@ export default function ProviderProfilePage() {
       setForm({
         businessName: profile.businessName || '', businessDescription: profile.businessDescription || '', specialization: profile.specialization || '', credentials: profile.credentials || '',
         yearsOfExperience: String(profile.yearsOfExperience || ''), address: profile.location?.address || '', lat: String(profile.location?.lat || ''), lng: String(profile.location?.lng || ''),
-        serviceRadiusKm: String(profile.serviceRadiusKm || 50), serviceType: profile.serviceType || (user?.role === 'veterinarian' ? ['veterinary', 'telemedicine'] : []),
+        serviceRadiusKm: String(profile.serviceRadiusKm || 50), serviceType: profile.serviceType || (user?.role === 'veterinarian' ? ['veterinary'] : []),
       });
       setServices((profile.pricing || []).map((item: { service: string; price: number; duration: number }) => ({ service: item.service, price: String(item.price), duration: String(item.duration) })));
     }).catch(() => showToast('Unable to load provider profile', 'error'));

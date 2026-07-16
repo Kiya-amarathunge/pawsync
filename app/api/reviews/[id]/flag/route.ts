@@ -1,3 +1,14 @@
+/**
+ * PawSync API route: /api/reviews/[id]/flag
+ *
+ * Domain: verified reviews and moderation.
+ * Methods: PATCH.
+ *
+ * Route handlers validate applicable input and access rules, perform the
+ * required database or service operation, and return JSON or file responses
+ * with meaningful HTTP status codes. Detailed checks remain close to the
+ * relevant handler so the business rules can be reviewed in context.
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
 import Review from '@/models/Review';
@@ -15,12 +26,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   try {
     await connectDB();
     const user = getUserFromRequest(req);
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!user || !['veterinarian', 'service_provider'].includes(user.role || '')) {
+      return NextResponse.json({ error: 'Provider access required' }, { status: 403 });
+    }
 
     const { id } = await params;
     const { reason } = await req.json().catch(() => ({ reason: 'Reported by user' }));
-    const review = await Review.findByIdAndUpdate(
-      id,
+    const review = await Review.findOneAndUpdate(
+      { _id: id, providerId: user.userId, removedAt: { $exists: false } },
       { $set: { isFlagged: true, moderationReason: String(reason || 'Reported by user').slice(0, 500) } },
       { new: true }
     );

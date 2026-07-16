@@ -11,7 +11,7 @@ const statusColors: Record<string, string> = {
 };
 
 const serviceIcons: Record<string, string> = {
-  veterinary: '🏥', grooming: '✂️', training: '🎓', boarding: '🏠', telemedicine: '💻',
+  veterinary: '🏥', grooming: '✂️', training: '🎓', boarding: '🏠',
 };
 
 export default function AppointmentsPage() {
@@ -153,6 +153,17 @@ export default function AppointmentsPage() {
     }
   };
 
+  const acceptProposedTime = async (id: string) => {
+    const response = await fetch(`/api/appointments/${id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ status: 'confirmed' }),
+    });
+    const data = await response.json();
+    showToast(response.ok ? data.message : data.error, response.ok ? 'success' : 'error');
+    if (response.ok) await fetchAppointments();
+  };
+
   const submitReview = async () => {
     if (!reviewAppointment) return;
     try {
@@ -166,13 +177,12 @@ export default function AppointmentsPage() {
     } catch (error) { showToast(error instanceof Error ? error.message : 'Unable to submit review', 'error'); }
   };
 
-  const upcoming = appointments.filter(a => ['pending', 'confirmed'].includes(a.status));
-  const past = appointments.filter(a => ['completed', 'cancelled', 'rescheduled'].includes(a.status));
+  const upcoming = appointments.filter(a => ['pending', 'confirmed', 'rescheduled'].includes(a.status));
+  const past = appointments.filter(a => ['completed', 'cancelled'].includes(a.status));
   const displayed = activeTab === 'upcoming' ? upcoming : past;
 
   const serviceTypes = [
     { type: 'veterinary', icon: '🏥', label: 'Veterinary', desc: 'In-person vet visit' },
-    { type: 'telemedicine', icon: '💻', label: 'Telemedicine', desc: 'Video consultation' },
     { type: 'grooming', icon: '✂️', label: 'Grooming', desc: 'Pet grooming session' },
     { type: 'training', icon: '🎓', label: 'Training', desc: 'Professional training' },
     { type: 'boarding', icon: '🏠', label: 'Boarding', desc: 'Pet boarding/sitting' },
@@ -254,10 +264,8 @@ export default function AppointmentsPage() {
                   </div>
                 )}
                 <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                  {appt.status === 'rescheduled' && <button className="btn btn-primary btn-sm" onClick={() => void acceptProposedTime(appt._id)}>Accept new time</button>}
                   {appt.status === 'completed' && <button className="btn btn-secondary btn-sm" onClick={() => setReviewAppointment(appt)}>Review</button>}
-                  {appt.serviceType === 'telemedicine' && appt.status === 'confirmed' && (
-                    <a href={`/consultations/${appt._id}`} className="btn btn-primary btn-sm">Join Call 💻</a>
-                  )}
                   {['pending', 'confirmed'].includes(appt.status) && (
                     <><button className="btn btn-secondary btn-sm" onClick={() => setReschedulingId(appt._id)}>Reschedule</button><button className="btn btn-danger btn-sm" onClick={() => handleCancel(appt._id)}>Cancel</button></>
                   )}

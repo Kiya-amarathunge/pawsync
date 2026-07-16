@@ -1,3 +1,14 @@
+/**
+ * PawSync API route: /api/reviews
+ *
+ * Domain: verified reviews and moderation.
+ * Methods: GET, POST.
+ *
+ * Route handlers validate applicable input and access rules, perform the
+ * required database or service operation, and return JSON or file responses
+ * with meaningful HTTP status codes. Detailed checks remain close to the
+ * relevant handler so the business rules can be reviewed in context.
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import connectDB from '@/lib/db';
@@ -14,14 +25,22 @@ export async function GET(req: NextRequest) {
   try {
     await connectDB();
     const providerId = req.nextUrl.searchParams.get('providerId');
+    const flagged = req.nextUrl.searchParams.get('flagged') === 'true';
     const rating = Number(req.nextUrl.searchParams.get('rating')) || 0;
     const page = Math.max(1, Number(req.nextUrl.searchParams.get('page')) || 1);
-    const filter: Record<string, unknown> = { removedAt: { $exists: false }, isFlagged: false };
+    const user = getRequestUser(req);
+    if (flagged && user?.role !== 'admin') {
+      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+    }
+    const filter: Record<string, unknown> = {
+      removedAt: { $exists: false },
+      isFlagged: flagged,
+    };
     if (providerId) filter.providerId = providerId;
     if (rating) filter.rating = rating;
     const limit = 20;
     const [reviews, total] = await Promise.all([
-      Review.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).populate('ownerId', 'name'),
+      Review.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).populate('ownerId', 'name').populate('providerId', 'name'),
       Review.countDocuments(filter),
     ]);
     return NextResponse.json({ reviews, total, page, pages: Math.ceil(total / limit) });

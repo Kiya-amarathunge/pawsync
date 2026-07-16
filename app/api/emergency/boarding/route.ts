@@ -1,3 +1,14 @@
+/**
+ * PawSync API route: /api/emergency/boarding
+ *
+ * Domain: emergency service discovery and urgent assistance.
+ * Methods: GET, POST.
+ *
+ * Route handlers validate applicable input and access rules, perform the
+ * required database or service operation, and return JSON or file responses
+ * with meaningful HTTP status codes. Detailed checks remain close to the
+ * relevant handler so the business rules can be reviewed in context.
+ */
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import connectDB from '@/lib/db';

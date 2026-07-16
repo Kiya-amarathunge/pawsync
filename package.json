@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "test:api": "node scripts/api-integration.mjs"
+    "test:api": "node scripts/api-integration.mjs",
+    "seed:providers": "node scripts/seed-demo-providers.mjs"
   },
   "dependencies": {
     "@types/pdfkit": "^0.17.6",

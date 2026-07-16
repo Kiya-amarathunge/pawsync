@@ -4,7 +4,7 @@ export interface IAppointment extends Document {
   petId: mongoose.Types.ObjectId;
   providerId: mongoose.Types.ObjectId;
   ownerId: mongoose.Types.ObjectId;
-  serviceType: 'veterinary' | 'grooming' | 'training' | 'boarding' | 'telemedicine';
+  serviceType: 'veterinary' | 'grooming' | 'training' | 'boarding';
   dateTime: Date;
   duration: number;
   status: 'pending' | 'confirmed' | 'completed' | 'cancelled' | 'rescheduled';
@@ -27,7 +27,7 @@ const AppointmentSchema = new Schema<IAppointment>({
   ownerId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   serviceType: {
     type: String,
-    enum: ['veterinary', 'grooming', 'training', 'boarding', 'telemedicine'],
+    enum: ['veterinary', 'grooming', 'training', 'boarding'],
     required: true,
   },
   dateTime: { type: Date, required: true },

@@ -1,3 +1,14 @@
+/**
+ * PawSync API route: /api/providers
+ *
+ * Domain: provider discovery and availability.
+ * Methods: GET.
+ *
+ * Route handlers validate applicable input and access rules, perform the
+ * required database or service operation, and return JSON or file responses
+ * with meaningful HTTP status codes. Detailed checks remain close to the
+ * relevant handler so the business rules can be reviewed in context.
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
 import ServiceProvider from '@/models/ServiceProvider';
@@ -37,12 +48,20 @@ export async function GET(req: NextRequest) {
     const owner = requestUser?.role === 'pet_owner' ? await User.findById(requestUser.userId).select('favoriteProviders').lean() : null;
     const favorites = new Set((owner?.favoriteProviders || []).map(id => String(id)));
     const [serviceProviders, veterinarians] = await Promise.all([
-      ServiceProvider.find({ isVerified: true }).populate('providerId', 'name email phoneNumber').lean(),
-      Veterinarian.find({ isVerified: true }).populate('vetId', 'name email phoneNumber').lean(),
+      ServiceProvider.find().populate({
+        path: 'providerId',
+        match: { isActive: true, isSuspended: false, verificationStatus: 'approved' },
+        select: 'name email phoneNumber',
+      }).lean(),
+      Veterinarian.find().populate({
+        path: 'vetId',
+        match: { isActive: true, isSuspended: false, verificationStatus: 'approved' },
+        select: 'name email phoneNumber',
+      }).lean(),
     ]);
     const normalized: ProviderResult[] = [
-      ...serviceProviders.map(provider => ({ ...provider, serviceType: provider.serviceType || [], providerId: provider.providerId } as ProviderResult)),
-      ...veterinarians.map(vet => ({ ...vet, businessName: `Dr. ${(vet.vetId as unknown as { name: string }).name}`, serviceType: ['veterinary', 'telemedicine'], providerId: vet.vetId } as ProviderResult)),
+      ...serviceProviders.filter(provider => provider.providerId).map(provider => ({ ...provider, serviceType: provider.serviceType || [], providerId: provider.providerId } as ProviderResult)),
+      ...veterinarians.filter(vet => vet.vetId).map(vet => ({ ...vet, businessName: `Dr. ${(vet.vetId as unknown as { name: string }).name}`, serviceType: ['veterinary'], providerId: vet.vetId } as ProviderResult)),
     ];
     const withRatings = await Promise.all(normalized.map(async provider => {
       const providerId = String(provider.providerId._id);

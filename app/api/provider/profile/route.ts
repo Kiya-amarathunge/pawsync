@@ -1,3 +1,14 @@
+/**
+ * PawSync API route: /api/provider/profile
+ *
+ * Domain: provider profiles, dashboards, and operations.
+ * Methods: GET, PUT.
+ *
+ * Route handlers validate applicable input and access rules, perform the
+ * required database or service operation, and return JSON or file responses
+ * with meaningful HTTP status codes. Detailed checks remain close to the
+ * relevant handler so the business rules can be reviewed in context.
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import connectDB from '@/lib/db';
@@ -19,7 +30,7 @@ const profileSchema = z.object({
   yearsOfExperience: z.number().int().min(0).max(80).optional(),
   location: z.object({ address: z.string().trim().max(500), lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) }).optional(),
   serviceRadiusKm: z.number().min(1).max(500).optional(),
-  serviceType: z.array(z.enum(['veterinary', 'telemedicine', 'grooming', 'training', 'sitting', 'boarding'])).optional(),
+  serviceType: z.array(z.enum(['veterinary', 'grooming', 'training', 'sitting', 'boarding'])).optional(),
   pricing: z.array(serviceSchema).max(30).optional(),
 });
 
