@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Line } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend } from 'chart.js';
-import { FileDown, FilePlus2, Pencil, Plus, Scale, Share2, Syringe, Trash2, Upload, X } from 'lucide-react';
+import { FileDown, FilePlus2, Pencil, Plus, Scale, Syringe, Trash2, Upload, X } from 'lucide-react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
@@ -13,7 +13,7 @@ ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip,
 
 interface PetDocument { _id: string; filename: string; mimeType: string; uploadedAt: string }
 interface Vaccination { _id: string; vaccine: string; date: string; nextDueDate?: string }
-interface Medication { _id: string; medication: string; dosage: string; frequency: string; startDate: string; endDate?: string }
+interface Medication { _id: string; medication: string; dosage: string; frequency: string; startDate: string; endDate?: string; nextReminderAt?: string }
 interface Pet {
   _id: string; name: string; species: string; breed: string; birthDate?: string; weight?: number;
   weightHistory?: Array<{ _id?: string; weight: number; date: string }>;
@@ -36,7 +36,8 @@ export default function PetsPage() {
   const [petForm, setPetForm] = useState(emptyPet);
   const [vaccination, setVaccination] = useState({ vaccine: '', date: '', nextDueDate: '' });
   const [medication, setMedication] = useState({ medication: '', dosage: '', frequency: '', startDate: '', endDate: '', nextReminderAt: '' });
-  const [vetEmail, setVetEmail] = useState('');
+  const [editingVaccinationId, setEditingVaccinationId] = useState('');
+  const [editingMedicationId, setEditingMedicationId] = useState('');
   const [chartData, setChartData] = useState<ChartData | null>(null);
   const [weightEntry, setWeightEntry] = useState({ weight: '', date: new Date().toISOString().slice(0, 10) });
 
@@ -59,7 +60,6 @@ export default function PetsPage() {
     }
   }, [showToast, token]);
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void loadPets(); }, [loadPets]);
   useEffect(() => {
     if (!selectedId || !token) return;
@@ -115,19 +115,63 @@ export default function PetsPage() {
   const addVaccination = async (event: FormEvent) => {
     event.preventDefault(); if (!selected) return;
     const response = await fetch(`/api/pets/${selected._id}/vaccinations`, {
-      method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(vaccination),
+      method: editingVaccinationId ? 'PATCH' : 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...vaccination, recordId: editingVaccinationId || undefined }),
     });
     const data = await response.json(); showToast(response.ok ? data.message : data.error, response.ok ? 'success' : 'error');
-    if (response.ok) { setVaccination({ vaccine: '', date: '', nextDueDate: '' }); await loadPets(); }
+    if (response.ok) {
+      setVaccination({ vaccine: '', date: '', nextDueDate: '' });
+      setEditingVaccinationId('');
+      await loadPets();
+    }
   };
 
   const addMedication = async (event: FormEvent) => {
     event.preventDefault(); if (!selected) return;
     const response = await fetch(`/api/pets/${selected._id}/medications`, {
-      method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(medication),
+      method: editingMedicationId ? 'PATCH' : 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...medication, recordId: editingMedicationId || undefined }),
     });
     const data = await response.json(); showToast(response.ok ? data.message : data.error, response.ok ? 'success' : 'error');
-    if (response.ok) { setMedication({ medication: '', dosage: '', frequency: '', startDate: '', endDate: '', nextReminderAt: '' }); await loadPets(); }
+    if (response.ok) {
+      setMedication({ medication: '', dosage: '', frequency: '', startDate: '', endDate: '', nextReminderAt: '' });
+      setEditingMedicationId('');
+      await loadPets();
+    }
+  };
+
+  const editVaccination = (record: Vaccination) => {
+    setEditingVaccinationId(record._id);
+    setVaccination({
+      vaccine: record.vaccine,
+      date: record.date.slice(0, 10),
+      nextDueDate: record.nextDueDate?.slice(0, 10) || '',
+    });
+  };
+
+  const editMedication = (record: Medication) => {
+    setEditingMedicationId(record._id);
+    setMedication({
+      medication: record.medication,
+      dosage: record.dosage,
+      frequency: record.frequency,
+      startDate: record.startDate.slice(0, 10),
+      endDate: record.endDate?.slice(0, 10) || '',
+      nextReminderAt: record.nextReminderAt || '',
+    });
+  };
+
+  const deleteHealthEntry = async (type: 'vaccinations' | 'medications', recordId: string) => {
+    if (!selected || !confirm(`Delete this ${type === 'vaccinations' ? 'vaccination' : 'medication'} record?`)) return;
+    const response = await fetch(`/api/pets/${selected._id}/${type}?recordId=${recordId}`, {
+      method: 'DELETE',
+      headers,
+    });
+    const data = await response.json();
+    showToast(response.ok ? data.message : data.error, response.ok ? 'success' : 'error');
+    if (response.ok) await loadPets();
   };
 
   const addWeight = async (event: FormEvent) => {
@@ -144,15 +188,6 @@ export default function PetsPage() {
       setWeightEntry({ weight: '', date: new Date().toISOString().slice(0, 10) });
       await loadPets();
     }
-  };
-
-  const shareRecords = async (event: FormEvent) => {
-    event.preventDefault(); if (!selected) return;
-    const response = await fetch(`/api/pets/${selected._id}/share`, {
-      method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ vetEmail }),
-    });
-    const data = await response.json(); showToast(response.ok ? data.message : data.error, response.ok ? 'success' : 'error');
-    if (response.ok) setVetEmail('');
   };
 
   const downloadDocument = async (document: PetDocument) => {
@@ -209,12 +244,48 @@ export default function PetsPage() {
         </section>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
-          <form onSubmit={addVaccination} className="card" style={{ padding: 18, display: 'grid', gap: 10 }}><h3 style={{ fontSize: 16, display: 'flex', gap: 8 }}><Syringe size={18} /> Vaccination</h3><input className="input" placeholder="Vaccine" value={vaccination.vaccine} onChange={event => setVaccination(value => ({ ...value, vaccine: event.target.value }))} required /><input className="input" type="date" value={vaccination.date} onChange={event => setVaccination(value => ({ ...value, date: event.target.value }))} required /><input className="input" type="date" value={vaccination.nextDueDate} onChange={event => setVaccination(value => ({ ...value, nextDueDate: event.target.value }))} /><button className="btn btn-primary btn-sm">Add vaccination</button></form>
-          <form onSubmit={addMedication} className="card" style={{ padding: 18, display: 'grid', gap: 10 }}><h3 style={{ fontSize: 16 }}>Medication schedule</h3>{(['medication', 'dosage', 'frequency'] as const).map(field => <input key={field} className="input" placeholder={field} value={medication[field]} onChange={event => setMedication(value => ({ ...value, [field]: event.target.value }))} required />)}<input className="input" type="date" value={medication.startDate} onChange={event => setMedication(value => ({ ...value, startDate: event.target.value }))} required /><input className="input" type="datetime-local" value={medication.nextReminderAt} onChange={event => setMedication(value => ({ ...value, nextReminderAt: event.target.value ? new Date(event.target.value).toISOString() : '' }))} /><button className="btn btn-primary btn-sm">Add medication</button></form>
-          <form onSubmit={shareRecords} className="card" style={{ padding: 18, display: 'grid', gap: 10 }}><h3 style={{ fontSize: 16, display: 'flex', gap: 8 }}><Share2 size={18} /> Share records</h3><input className="input" type="email" placeholder="Verified veterinarian email" value={vetEmail} onChange={event => setVetEmail(event.target.value)} required /><button className="btn btn-primary btn-sm">Grant access</button></form>
+          <form onSubmit={addVaccination} className="card" style={{ padding: 18, display: 'grid', gap: 10 }}>
+            <h3 style={{ fontSize: 16, display: 'flex', gap: 8 }}><Syringe size={18} /> {editingVaccinationId ? 'Edit vaccination' : 'Vaccination'}</h3>
+            <input className="input" placeholder="Vaccine" value={vaccination.vaccine} onChange={event => setVaccination(value => ({ ...value, vaccine: event.target.value }))} required />
+            <input className="input" type="date" value={vaccination.date} onChange={event => setVaccination(value => ({ ...value, date: event.target.value }))} required />
+            <input className="input" type="date" value={vaccination.nextDueDate} onChange={event => setVaccination(value => ({ ...value, nextDueDate: event.target.value }))} />
+            <div style={{ display: 'flex', gap: 8 }}>
+              {editingVaccinationId && <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setEditingVaccinationId(''); setVaccination({ vaccine: '', date: '', nextDueDate: '' }); }}>Cancel</button>}
+              <button className="btn btn-primary btn-sm">{editingVaccinationId ? 'Save changes' : 'Add vaccination'}</button>
+            </div>
+          </form>
+          <form onSubmit={addMedication} className="card" style={{ padding: 18, display: 'grid', gap: 10 }}>
+            <h3 style={{ fontSize: 16 }}>{editingMedicationId ? 'Edit medication' : 'Medication schedule'}</h3>
+            {(['medication', 'dosage', 'frequency'] as const).map(field => <input key={field} className="input" placeholder={field} value={medication[field]} onChange={event => setMedication(value => ({ ...value, [field]: event.target.value }))} required />)}
+            <input className="input" type="date" value={medication.startDate} onChange={event => setMedication(value => ({ ...value, startDate: event.target.value }))} required />
+            <input className="input" type="datetime-local" value={medication.nextReminderAt} onChange={event => setMedication(value => ({ ...value, nextReminderAt: event.target.value ? new Date(event.target.value).toISOString() : '' }))} />
+            <div style={{ display: 'flex', gap: 8 }}>
+              {editingMedicationId && <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setEditingMedicationId(''); setMedication({ medication: '', dosage: '', frequency: '', startDate: '', endDate: '', nextReminderAt: '' }); }}>Cancel</button>}
+              <button className="btn btn-primary btn-sm">{editingMedicationId ? 'Save changes' : 'Add medication'}</button>
+            </div>
+          </form>
         </div>
 
-        {(selected.vaccinationHistory?.length || selected.medicationSchedules?.length || selected.documents?.length) ? <section className="card" style={{ padding: 20 }}><h3 style={{ fontSize: 16, marginBottom: 12 }}>Pet health details</h3><div style={{ display: 'grid', gap: 8 }}>{selected.vaccinationHistory?.map(item => <div key={item._id} style={{ display: 'flex', justifyContent: 'space-between', padding: 10, background: 'var(--surface-secondary)' }}><span>{item.vaccine}</span><span>{new Date(item.date).toLocaleDateString()}{item.nextDueDate ? ` · due ${new Date(item.nextDueDate).toLocaleDateString()}` : ''}</span></div>)}{selected.medicationSchedules?.map(item => <div key={item._id} style={{ padding: 10, background: 'var(--surface-secondary)' }}><strong>{item.medication}</strong> · {item.dosage} · {item.frequency}</div>)}{selected.documents?.map(document => <button key={document._id} className="btn btn-secondary btn-sm" onClick={() => void downloadDocument(document)} style={{ justifyContent: 'flex-start' }}><FileDown size={16} /> {document.filename}</button>)}</div></section> : null}
+        {(selected.vaccinationHistory?.length || selected.medicationSchedules?.length || selected.documents?.length) ? <section className="card" style={{ padding: 20 }}>
+          <h3 style={{ fontSize: 16, marginBottom: 12 }}>Pet health details</h3>
+          <div style={{ display: 'grid', gap: 8 }}>
+            {selected.vaccinationHistory?.map(item => <div key={item._id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', padding: 10, background: 'var(--surface-secondary)' }}>
+              <div><strong>{item.vaccine}</strong><p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{new Date(item.date).toLocaleDateString()}{item.nextDueDate ? ` · due ${new Date(item.nextDueDate).toLocaleDateString()}` : ''}</p></div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button className="btn btn-secondary btn-sm" onClick={() => editVaccination(item)} aria-label={`Edit ${item.vaccine}`}><Pencil size={15} /></button>
+                <button className="btn btn-danger btn-sm" onClick={() => void deleteHealthEntry('vaccinations', item._id)} aria-label={`Delete ${item.vaccine}`}><Trash2 size={15} /></button>
+              </div>
+            </div>)}
+            {selected.medicationSchedules?.map(item => <div key={item._id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', padding: 10, background: 'var(--surface-secondary)' }}>
+              <div><strong>{item.medication}</strong><p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{item.dosage} · {item.frequency}</p></div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button className="btn btn-secondary btn-sm" onClick={() => editMedication(item)} aria-label={`Edit ${item.medication}`}><Pencil size={15} /></button>
+                <button className="btn btn-danger btn-sm" onClick={() => void deleteHealthEntry('medications', item._id)} aria-label={`Delete ${item.medication}`}><Trash2 size={15} /></button>
+              </div>
+            </div>)}
+            {selected.documents?.map(document => <button key={document._id} className="btn btn-secondary btn-sm" onClick={() => void downloadDocument(document)} style={{ justifyContent: 'flex-start' }}><FileDown size={16} /> {document.filename}</button>)}
+          </div>
+        </section> : null}
       </div> : <div className="empty-state"><p>Add a pet to begin tracking care.</p></div>}
     </div>
   </DashboardLayout>;

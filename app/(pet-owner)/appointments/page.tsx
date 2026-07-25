@@ -1,6 +1,5 @@
 'use client';
-/* eslint-disable @typescript-eslint/no-explicit-any, react/no-unescaped-entities */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import DashboardLayout from '@/components/layout/DashboardLayout';
@@ -32,8 +31,10 @@ export default function AppointmentsPage() {
   const [bookingStep, setBookingStep] = useState(1);
   const [providers, setProviders] = useState<any[]>([]);
   const [pets, setPets] = useState<any[]>([]);
+  const [selectedProvider, setSelectedProvider] = useState<any>(null);
   const [availableSlots, setAvailableSlots] = useState<any[]>([]);
   const [isBooking, setIsBooking] = useState(false);
+  const handledProviderLink = useRef(false);
   const [booking, setBooking] = useState({
     serviceType: '', providerId: '', petId: '',
     date: '', time: '', notes: '', price: 0, duration: 60,
@@ -47,7 +48,8 @@ export default function AppointmentsPage() {
     setIsLoading(false);
   };
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
+  // fetchAppointments intentionally runs again only when the active login changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchAppointments(); }, [token]);
 
   const fetchProviders = async (serviceType: string) => {
@@ -77,9 +79,60 @@ export default function AppointmentsPage() {
 
   const handleSelectProvider = (provider: any) => {
     const price = provider.pricing?.find((item: any) => item.service === booking.serviceType);
+    setSelectedProvider(provider);
     setBooking(prev => ({ ...prev, providerId: provider.providerId?._id || provider.providerId, price: price?.price || 0, duration: price?.duration || 60 }));
     setBookingStep(3);
   };
+
+  // Preserve the professional chosen in the provider directory.
+  useEffect(() => {
+    if (!token || handledProviderLink.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const providerId = params.get('provider') || sessionStorage.getItem('pawsync_booking_provider');
+    const serviceType = params.get('service') || sessionStorage.getItem('pawsync_booking_service');
+    if (!providerId || !serviceType) return;
+    handledProviderLink.current = true;
+    sessionStorage.removeItem('pawsync_booking_provider');
+    sessionStorage.removeItem('pawsync_booking_service');
+
+    const prepareSelectedProvider = async () => {
+      try {
+        const headers = { Authorization: `Bearer ${token}` };
+        const [providerResponse, petsResponse] = await Promise.all([
+          fetch(`/api/providers?serviceType=${encodeURIComponent(serviceType)}`, { headers }),
+          fetch('/api/pets', { headers }),
+        ]);
+        const providerData = await providerResponse.json();
+        const petsData = await petsResponse.json();
+        if (!providerResponse.ok) throw new Error(providerData.error || 'Unable to load provider');
+        if (!petsResponse.ok) throw new Error(petsData.error || 'Unable to load pets');
+
+        const availableProviders = providerData.providers || [];
+        const provider = availableProviders.find(
+          (item: any) => String(item.providerId?._id || item.providerId) === providerId,
+        );
+        if (!provider) throw new Error('The selected provider is no longer available');
+        const price = provider.pricing?.find((item: any) => item.service === serviceType);
+
+        setProviders(availableProviders);
+        setPets(petsData.pets || []);
+        setSelectedProvider(provider);
+        setBooking(prev => ({
+          ...prev,
+          serviceType,
+          providerId,
+          price: price?.price || 0,
+          duration: price?.duration || 60,
+        }));
+        setShowBookingModal(true);
+        setBookingStep(3);
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : 'Unable to start booking', 'error');
+      }
+    };
+
+    void prepareSelectedProvider();
+  }, [showToast, token]);
 
   const handleSelectDate = async (date: string) => {
     setBooking(prev => ({ ...prev, date }));
@@ -111,6 +164,7 @@ export default function AppointmentsPage() {
       showToast('Appointment booked successfully!', 'success');
       setShowBookingModal(false);
       setBookingStep(1);
+      setSelectedProvider(null);
       setBooking({ serviceType: '', providerId: '', petId: '', date: '', time: '', notes: '', price: 0, duration: 60 });
       fetchAppointments();
     } catch (err: any) {
@@ -188,10 +242,13 @@ export default function AppointmentsPage() {
     { type: 'boarding', icon: '🏠', label: 'Boarding', desc: 'Pet boarding/sitting' },
   ];
 
-  // Tomorrow's date as minimum
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const minDate = tomorrow.toISOString().split('T')[0];
+  // Owners may book today; the availability API removes times that have passed.
+  const today = new Date();
+  const minDate = [
+    today.getFullYear(),
+    String(today.getMonth() + 1).padStart(2, '0'),
+    String(today.getDate()).padStart(2, '0'),
+  ].join('-');
   const minRescheduleDate = `${minDate}T00:00`;
 
   return (
@@ -202,7 +259,7 @@ export default function AppointmentsPage() {
             <h1 className="page-title">Appointments</h1>
             <p className="page-subtitle">Manage and book your pet care appointments</p>
           </div>
-          <button className="btn btn-primary" onClick={() => { setShowBookingModal(true); setBookingStep(1); }}>
+          <button className="btn btn-primary" onClick={() => { setSelectedProvider(null); setShowBookingModal(true); setBookingStep(1); }}>
             + Book Appointment
           </button>
         </div>
@@ -237,7 +294,7 @@ export default function AppointmentsPage() {
               {activeTab === 'upcoming' ? 'Book an appointment to get started' : 'Your appointment history will appear here'}
             </p>
             {activeTab === 'upcoming' && (
-              <button className="btn btn-primary" onClick={() => setShowBookingModal(true)}>Book Now</button>
+              <button className="btn btn-primary" onClick={() => { setSelectedProvider(null); setShowBookingModal(true); }}>Book Now</button>
             )}
           </div>
         ) : (
@@ -254,6 +311,9 @@ export default function AppointmentsPage() {
                   </div>
                   <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
                     📅 {new Date(appt.dateTime).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} at {new Date(appt.dateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                  <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>
+                    Provider: <strong>{appt.providerId?.name || 'Provider unavailable'}</strong>
                   </p>
                   {appt.notes && <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>📝 {appt.notes}</p>}
                 </div>
@@ -450,6 +510,7 @@ export default function AppointmentsPage() {
                   <div style={{ background: 'var(--surface)', borderRadius: 'var(--radius-lg)', padding: '20px', marginBottom: 20 }}>
                     {[
                       ['Service', booking.serviceType, serviceIcons[booking.serviceType]],
+                      ['Provider', selectedProvider?.businessName || selectedProvider?.providerName || '—', ''],
                       ['Pet', pets.find(p => p._id === booking.petId)?.name || '—', '🐾'],
                       ['Date', new Date(`${booking.date}T00:00:00`).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }), '📅'],
                       ['Time', availableSlots.find(s => s.time === booking.time)?.label || booking.time, '⏰'],

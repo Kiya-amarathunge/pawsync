@@ -22,7 +22,7 @@ const providerNav: NavSection[] = [
 
 const adminNav: NavSection[] = [
   { section: 'Overview', items: [{ href: '/admin/dashboard', icon: Home, label: 'Dashboard' }, { href: '/admin/analytics', icon: BarChart3, label: 'Analytics' }] },
-  { section: 'Operations', items: [{ href: '/admin/verifications', icon: BadgeCheck, label: 'Verifications' }, { href: '/admin/moderation', icon: ShieldCheck, label: 'Moderation' }, { href: '/admin/disputes', icon: Activity, label: 'Disputes' }, { href: '/admin/users', icon: Users, label: 'Users' }, { href: '/admin/security', icon: ShieldAlert, label: 'Security Alerts' }] },
+  { section: 'Operations', items: [{ href: '/admin/verifications', icon: BadgeCheck, label: 'Verifications' }, { href: '/admin/emergency-services', icon: Siren, label: 'Emergency Services' }, { href: '/admin/moderation', icon: ShieldCheck, label: 'Moderation' }, { href: '/admin/disputes', icon: Activity, label: 'Disputes' }, { href: '/admin/users', icon: Users, label: 'Users' }, { href: '/admin/security', icon: ShieldAlert, label: 'Security Alerts' }] },
   { section: 'System', items: [{ href: '/admin/announcements', icon: Megaphone, label: 'Announcements' }, { href: '/admin/audit-logs', icon: FileClock, label: 'Audit Logs' }] },
 ];
 

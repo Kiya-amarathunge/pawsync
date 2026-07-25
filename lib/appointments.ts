@@ -31,3 +31,8 @@ export function isWithinAvailability(start: Date, duration: number, window: Avai
   return appointmentMinute >= startHour * 60 + startMinute
     && appointmentMinute + duration <= endHour * 60 + endMinute;
 }
+
+export function hasAppointmentTimePassed(dateTime: Date, now = new Date()) {
+  // A provider may record the outcome only once the scheduled start time arrives.
+  return now.getTime() >= dateTime.getTime();
+}

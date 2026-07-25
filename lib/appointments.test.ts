@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { intervalsOverlap, isWithinAvailability } from './appointments';
+import { hasAppointmentTimePassed, intervalsOverlap, isWithinAvailability } from './appointments';
 
 describe('appointment scheduling', () => {
   // This fixed appointment is the baseline used by all overlap examples.
@@ -22,5 +22,12 @@ describe('appointment scheduling', () => {
     const hours = { startTime: '09:00', endTime: '17:00' };
     expect(isWithinAvailability(new Date('2026-07-12T09:00:00'), 60, hours)).toBe(true);
     expect(isWithinAvailability(new Date('2026-07-12T16:30:00'), 60, hours)).toBe(false);
+  });
+
+  it('allows completion only after the scheduled appointment time', () => {
+    const appointmentTime = new Date('2026-07-12T10:00:00');
+    expect(hasAppointmentTimePassed(appointmentTime, new Date('2026-07-12T09:59:59'))).toBe(false);
+    expect(hasAppointmentTimePassed(appointmentTime, new Date('2026-07-12T10:00:00'))).toBe(true);
+    expect(hasAppointmentTimePassed(appointmentTime, new Date('2026-07-12T11:00:00'))).toBe(true);
   });
 });

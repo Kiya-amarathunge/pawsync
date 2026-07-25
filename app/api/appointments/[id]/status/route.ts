@@ -13,7 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
 import Appointment from '@/models/Appointment';
 import { getRequestUser } from '@/lib/request-auth';
-import { intervalsOverlap } from '@/lib/appointments';
+import { hasAppointmentTimePassed, intervalsOverlap } from '@/lib/appointments';
 import { createNotification } from '@/lib/notifications';
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -55,6 +55,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     };
     if (!allowedTransitions[appointment.status]?.includes(status)) {
       return NextResponse.json({ error: `A ${appointment.status} appointment cannot be changed to ${status}` }, { status: 409 });
+    }
+    if (status === 'completed' && !hasAppointmentTimePassed(appointment.dateTime)) {
+      return NextResponse.json(
+        { error: 'This appointment can only be marked complete after its scheduled date and time' },
+        { status: 409 },
+      );
     }
     if (status === 'rescheduled') {
       if (!newDateTime) return NextResponse.json({ error: 'A proposed date and time is required' }, { status: 400 });
