@@ -51,18 +51,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
     });
 
-    await transporter.sendMail({
-      from: `"PawSync" <${process.env.SMTP_USER}>`,
-      to: user.email,
-      subject: 'Update on your PawSync application',
-      html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
-        <h2 style="color:#1D9E75">Application Update</h2>
-        <p>Hi ${user.name},</p>
-        <p>After reviewing your application, we are unable to approve your account at this time.</p>
-        ${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ''}
-        <p>If you have questions, please contact our support team.</p>
-      </div>`,
-    });
+    try {
+      await transporter.sendMail({
+        from: `"PawSync" <${process.env.SMTP_USER}>`,
+        to: user.email,
+        subject: 'Update on your PawSync application',
+        html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+          <h2 style="color:#1D9E75">Application Update</h2>
+          <p>Hi ${user.name},</p>
+          <p>After reviewing your application, we are unable to approve your account at this time.</p>
+          ${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ''}
+          <p>If you have questions, please contact our support team.</p>
+        </div>`,
+      });
+    } catch (emailError) {
+      console.error('Provider rejection email delivery error:', emailError);
+    }
 
     await AuditLog.create({
       adminId: admin.userId,

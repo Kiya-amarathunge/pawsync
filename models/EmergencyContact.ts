@@ -4,7 +4,7 @@ export interface IEmergencyContact extends Document {
   name: string;
   address: string;
   phone: string;
-  location: { lat: number; lng: number };
+  location?: { lat: number; lng: number };
   is24Hours: boolean;
   specializations: string[];
   isVerified: boolean;
@@ -18,8 +18,8 @@ const EmergencyContactSchema = new Schema<IEmergencyContact>({
   address: { type: String, required: true },
   phone: { type: String, required: true },
   location: {
-    lat: { type: Number, required: true },
-    lng: { type: Number, required: true },
+    lat: Number,
+    lng: Number,
   },
   is24Hours: { type: Boolean, default: false },
   specializations: [{ type: String }],
@@ -28,7 +28,5 @@ const EmergencyContactSchema = new Schema<IEmergencyContact>({
   availabilityUpdatedAt: Date,
   linkedProviderId: { type: Schema.Types.ObjectId, ref: 'User' },
 });
-
-EmergencyContactSchema.index({ 'location.lat': 1, 'location.lng': 1 });
 
 export default mongoose.models.EmergencyContact || mongoose.model<IEmergencyContact>('EmergencyContact', EmergencyContactSchema);

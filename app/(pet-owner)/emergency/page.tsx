@@ -1,65 +1,101 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { BedDouble, BookOpen, MapPin, Navigation, PhoneCall, ShieldAlert, X } from 'lucide-react';
+import { BookOpen, MapPin, Navigation, PhoneCall, ShieldAlert, X } from 'lucide-react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 
-interface Clinic { _id: string; name: string; address: string; phone: string; location: { lat: number; lng: number }; is24Hours: boolean; distance: number; availabilityStatus: 'available' | 'busy' | 'call-to-confirm'; specializations: string[] }
+interface Clinic {
+  _id: string;
+  name: string;
+  address: string;
+  phone: string;
+  is24Hours: boolean;
+  availabilityStatus: 'available' | 'busy' | 'call-to-confirm';
+  specializations: string[];
+}
+
 interface Pet { _id: string; name: string }
-interface Boarding { providerId: { _id: string; name: string; phoneNumber: string }; businessName: string; pricing: Array<{ service: string; price: number }> }
 interface Resource { id: string; title: string; content: string }
-const defaultCoordinates = { lat: 6.9271, lng: 79.8612 };
 
 export default function EmergencyPage() {
-  const { token } = useAuth(); const { showToast } = useToast();
-  const [clinics, setClinics] = useState<Clinic[]>([]); const [pets, setPets] = useState<Pet[]>([]); const [resources, setResources] = useState<Resource[]>([]); const [boarding, setBoarding] = useState<Boarding[]>([]);
-  const [selectedClinic, setSelectedClinic] = useState<Clinic | null>(null); const [petId, setPetId] = useState(''); const [reason, setReason] = useState(''); const [coordinates, setCoordinates] = useState(defaultCoordinates); const [locating, setLocating] = useState(true);
-  const [boardingForm, setBoardingForm] = useState({ providerId: '', petId: '', dateTime: '', notes: '' }); const headers = { Authorization: `Bearer ${token}` };
-  const [requestingBoarding, setRequestingBoarding] = useState(false);
+  const { token } = useAuth();
+  const { showToast } = useToast();
+  const [clinics, setClinics] = useState<Clinic[]>([]);
+  const [pets, setPets] = useState<Pet[]>([]);
+  const [resources, setResources] = useState<Resource[]>([]);
+  const [selectedClinic, setSelectedClinic] = useState<Clinic | null>(null);
+  const [petId, setPetId] = useState('');
+  const [reason, setReason] = useState('');
+  const [loading, setLoading] = useState(true);
+  const headers = { Authorization: `Bearer ${token}` };
 
-  const loadClinics = useCallback(async (lat: number, lng: number) => { const response = await fetch(`/api/emergency/services?lat=${lat}&lng=${lng}`); const data = await response.json(); setClinics(data.services || []); }, []);
+  const loadServices = useCallback(async () => {
+    setLoading(true);
+    const response = await fetch('/api/emergency/services');
+    const data = await response.json();
+    if (!response.ok) showToast(data.error || 'Unable to load emergency services', 'error');
+    setClinics(data.services || []);
+    setLoading(false);
+  }, [showToast]);
+
   useEffect(() => {
-    Promise.all([fetch('/api/emergency/resources').then(response => response.json()), fetch('/api/emergency/boarding').then(response => response.json()), token ? fetch('/api/pets', { headers: { Authorization: `Bearer ${token}` } }).then(response => response.json()) : Promise.resolve({ pets: [] })]).then(([resourceData, boardingData, petData]) => { setResources(resourceData.resources || []); setBoarding(boardingData.boarding || []); setPets(petData.pets || []); });
-    // Show approved clinics immediately, then improve distance ordering with live location.
-    void loadClinics(defaultCoordinates.lat, defaultCoordinates.lng).finally(() => setLocating(false));
-    navigator.geolocation.getCurrentPosition(position => { const next = { lat: position.coords.latitude, lng: position.coords.longitude }; setCoordinates(next); void loadClinics(next.lat, next.lng); setLocating(false); }, () => { setLocating(false); }, { enableHighAccuracy: true, timeout: 8000 });
-  }, [loadClinics, token]);
+    void loadServices();
+    Promise.all([
+      fetch('/api/emergency/resources').then(response => response.json()),
+      token ? fetch('/api/pets', { headers: { Authorization: `Bearer ${token}` } }).then(response => response.json()) : Promise.resolve({ pets: [] }),
+    ]).then(([resourceData, petData]) => {
+      setResources(resourceData.resources || []);
+      setPets(petData.pets || []);
+    });
+  }, [loadServices, token]);
 
-  const contactClinic = async () => { if (!selectedClinic) return; const response = await fetch('/api/emergency/contact', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ clinicId: selectedClinic._id, petId: petId || undefined, reason, shareRecords: false }) }); const data = await response.json(); if (!response.ok) return showToast(data.error, 'error'); showToast('Emergency contact logged', 'success'); window.location.href = `tel:${data.phone}`; };
-  const requestBoarding = async () => {
-    setRequestingBoarding(true);
-    try {
-      const response = await fetch('/api/emergency/boarding', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...boardingForm, dateTime: new Date(boardingForm.dateTime).toISOString() }) });
-      const data = await response.json();
-      showToast(response.ok ? data.message : data.error, response.ok ? 'success' : 'error');
-      if (response.ok) setBoardingForm({ providerId: '', petId: '', dateTime: '', notes: '' });
-    } finally {
-      setRequestingBoarding(false);
-    }
+  const contactClinic = async () => {
+    if (!selectedClinic) return;
+    const response = await fetch('/api/emergency/contact', {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clinicId: selectedClinic._id, petId: petId || undefined, reason, shareRecords: false }),
+    });
+    const data = await response.json();
+    if (!response.ok) return showToast(data.error, 'error');
+    showToast('Emergency contact logged', 'success');
+    window.location.href = `tel:${data.phone}`;
   };
 
-  const currentDateTime = new Date();
-  currentDateTime.setSeconds(0, 0);
-  const minBoardingTime = `${currentDateTime.getFullYear()}-${String(currentDateTime.getMonth() + 1).padStart(2, '0')}-${String(currentDateTime.getDate()).padStart(2, '0')}T${String(currentDateTime.getHours()).padStart(2, '0')}:${String(currentDateTime.getMinutes()).padStart(2, '0')}`;
-
-  return <DashboardLayout><section style={{ background: '#b42318', color: 'white', padding: 24, marginBottom: 20 }}><div style={{ display: 'flex', gap: 15, alignItems: 'center' }}><ShieldAlert size={42} /><div><h1 style={{ fontSize: 28 }}>Emergency Services</h1><p>For immediate danger, call the nearest clinic now. Availability must be confirmed directly.</p></div></div></section>
-    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.35fr) minmax(280px, .65fr)', gap: 18, alignItems: 'start' }}><main style={{ display: 'grid', gap: 14 }}><div style={{ display: 'flex', justifyContent: 'space-between' }}><h2 style={{ fontSize: 18 }}>Nearest emergency clinics</h2><button className="btn btn-secondary btn-sm" onClick={() => { setLocating(true); navigator.geolocation.getCurrentPosition(position => { setCoordinates({ lat: position.coords.latitude, lng: position.coords.longitude }); void loadClinics(position.coords.latitude, position.coords.longitude); setLocating(false); }); }}><MapPin size={16} /> {locating ? 'Locating...' : 'Refresh location'}</button></div>{clinics.map(clinic => <article key={clinic._id} className="card" style={{ padding: 17 }}><div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}><div><h3 style={{ fontSize: 16 }}>{clinic.name}</h3><p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{clinic.address}</p><p style={{ fontSize: 12, marginTop: 4 }}>{clinic.distance} km away · {clinic.is24Hours ? 'Open 24/7' : 'Limited hours'}</p></div><span className={`badge ${clinic.availabilityStatus === 'available' ? 'badge-green' : clinic.availabilityStatus === 'busy' ? 'badge-red' : 'badge-gray'}`}>{clinic.availabilityStatus.replace('-', ' ')}</span></div><div style={{ display: 'flex', gap: 8, marginTop: 13 }}><button className="btn btn-danger btn-sm" onClick={() => setSelectedClinic(clinic)}><PhoneCall size={16} /> Call {clinic.phone}</button><a className="btn btn-secondary btn-sm" target="_blank" rel="noreferrer" href={`https://www.google.com/maps/dir/?api=1&origin=${coordinates.lat},${coordinates.lng}&destination=${clinic.location.lat},${clinic.location.lng}`}><Navigation size={16} /> Directions</a></div></article>)}{clinics.length === 0 && !locating && <div className="empty-state"><p>No verified emergency clinics are registered nearby. Contact your regular veterinarian or local emergency hotline.</p></div>}
-      <section className="card" style={{ padding: 18 }}>
-        <h2 style={{ fontSize: 17, display: 'flex', gap: 8, marginBottom: 5 }}><BedDouble size={19} /> Emergency boarding</h2>
-        <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12 }}>Send an urgent request to an approved boarding provider. The provider must accept the request.</p>
-        {boarding.length === 0 ? <div className="empty-state"><p>No approved emergency boarding providers are currently available.</p></div> : <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 9 }}>
-            <select className="input" value={boardingForm.providerId} onChange={event => setBoardingForm(value => ({ ...value, providerId: event.target.value }))}><option value="">Boarding provider</option>{boarding.map(item => <option key={item.providerId._id} value={item.providerId._id}>{item.businessName}</option>)}</select>
-            <select className="input" value={boardingForm.petId} onChange={event => setBoardingForm(value => ({ ...value, petId: event.target.value }))}><option value="">Pet</option>{pets.map(pet => <option key={pet._id} value={pet._id}>{pet.name}</option>)}</select>
-            <input className="input" type="datetime-local" min={minBoardingTime} value={boardingForm.dateTime} onChange={event => setBoardingForm(value => ({ ...value, dateTime: event.target.value }))} />
-            <input className="input" placeholder="Describe the urgent circumstances" value={boardingForm.notes} onChange={event => setBoardingForm(value => ({ ...value, notes: event.target.value }))} />
+  return <DashboardLayout>
+    <section style={{ background: '#b42318', color: 'white', padding: 24, marginBottom: 20 }}>
+      <div style={{ display: 'flex', gap: 15, alignItems: 'center' }}><ShieldAlert size={42} /><div><h1 style={{ fontSize: 28 }}>Emergency Services</h1><p>For immediate danger, call an approved emergency service now. Availability must be confirmed directly.</p></div></div>
+    </section>
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.35fr) minmax(280px, .65fr)', gap: 18, alignItems: 'start' }}>
+      <main style={{ display: 'grid', gap: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+          <div><h2 style={{ fontSize: 18 }}>Approved emergency services</h2><p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>These services are registered and managed by the PawSync administrator.</p></div>
+          <button className="btn btn-secondary btn-sm" onClick={() => void loadServices()}><MapPin size={16} /> Refresh list</button>
+        </div>
+        {loading ? <div className="skeleton" style={{ height: 150 }} /> : clinics.map(clinic => <article key={clinic._id} className="card" style={{ padding: 17 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+            <div><h3 style={{ fontSize: 16 }}>{clinic.name}</h3><p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{clinic.address}</p><p style={{ fontSize: 12, marginTop: 4 }}>{clinic.is24Hours ? 'Open 24/7' : 'Limited hours'} · {clinic.specializations.join(', ') || 'General emergency care'}</p></div>
+            <span className={`badge ${clinic.availabilityStatus === 'available' ? 'badge-green' : clinic.availabilityStatus === 'busy' ? 'badge-red' : 'badge-gray'}`}>{clinic.availabilityStatus.replaceAll('-', ' ')}</span>
           </div>
-          <button className="btn btn-primary" style={{ marginTop: 10 }} disabled={requestingBoarding || !boardingForm.providerId || !boardingForm.petId || !boardingForm.dateTime || boardingForm.notes.trim().length < 3} onClick={() => void requestBoarding()}>{requestingBoarding ? 'Sending request...' : 'Request boarding'}</button>
-        </>}
-      </section></main>
-      <aside className="card" style={{ padding: 18 }}><h2 style={{ fontSize: 17, display: 'flex', gap: 8, marginBottom: 12 }}><BookOpen size={18} /> First aid and preparedness</h2>{resources.map(resource => <details key={resource.id} style={{ padding: '10px 0', borderBottom: '1px solid var(--border)' }}><summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>{resource.title}</summary><p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 7, lineHeight: 1.5 }}>{resource.content}</p></details>)}</aside></div>
-    {selectedClinic && <div className="modal-overlay" onClick={() => setSelectedClinic(null)}><div className="modal" onClick={event => event.stopPropagation()}><div style={{ display: 'flex', justifyContent: 'space-between' }}><h2 className="modal-title">Contact {selectedClinic.name}</h2><button className="btn btn-ghost btn-sm" onClick={() => setSelectedClinic(null)}><X size={17} /></button></div><select className="input" value={petId} onChange={event => setPetId(event.target.value)}><option value="">Pet (optional)</option>{pets.map(pet => <option key={pet._id} value={pet._id}>{pet.name}</option>)}</select><textarea className="input" style={{ marginTop: 10 }} placeholder="Brief reason for emergency" value={reason} onChange={event => setReason(event.target.value)} /><button className="btn btn-danger btn-full" style={{ marginTop: 14 }} onClick={() => void contactClinic()}><PhoneCall size={17} /> Log and call now</button></div></div>}
+          <div style={{ display: 'flex', gap: 8, marginTop: 13, flexWrap: 'wrap' }}>
+            <button className="btn btn-danger btn-sm" onClick={() => setSelectedClinic(clinic)}><PhoneCall size={16} /> Call {clinic.phone}</button>
+            <a className="btn btn-secondary btn-sm" target="_blank" rel="noreferrer" href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(clinic.address)}`}><Navigation size={16} /> Directions</a>
+          </div>
+        </article>)}
+        {!loading && clinics.length === 0 && <div className="empty-state"><p>No approved emergency services are currently registered. Contact your regular veterinarian or local emergency hotline.</p></div>}
+      </main>
+      <aside className="card" style={{ padding: 18 }}>
+        <h2 style={{ fontSize: 17, display: 'flex', gap: 8, marginBottom: 12 }}><BookOpen size={18} /> First aid and preparedness</h2>
+        {resources.map(resource => <details key={resource.id} style={{ padding: '10px 0', borderBottom: '1px solid var(--border)' }}><summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>{resource.title}</summary><p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 7, lineHeight: 1.5 }}>{resource.content}</p></details>)}
+      </aside>
+    </div>
+    {selectedClinic && <div className="modal-overlay" onClick={() => setSelectedClinic(null)}><div className="modal" onClick={event => event.stopPropagation()}>
+      <div style={{ display: 'flex', justifyContent: 'space-between' }}><h2 className="modal-title">Contact {selectedClinic.name}</h2><button className="btn btn-ghost btn-sm" onClick={() => setSelectedClinic(null)} aria-label="Close"><X size={17} /></button></div>
+      <select className="input" value={petId} onChange={event => setPetId(event.target.value)}><option value="">Pet (optional)</option>{pets.map(pet => <option key={pet._id} value={pet._id}>{pet.name}</option>)}</select>
+      <textarea className="input" style={{ marginTop: 10 }} placeholder="Brief reason for emergency" value={reason} onChange={event => setReason(event.target.value)} />
+      <button className="btn btn-danger btn-full" style={{ marginTop: 14 }} onClick={() => void contactClinic()}><PhoneCall size={17} /> Log and call now</button>
+    </div></div>}
   </DashboardLayout>;
 }

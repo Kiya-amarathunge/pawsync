@@ -12,6 +12,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
 import ServiceProvider from '@/models/ServiceProvider';
+import Veterinarian from '@/models/Veterinarian';
+import User from '@/models/User';
 import Review from '@/models/Review';
 
 // GET /api/providers/[id]
@@ -20,14 +22,20 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     await connectDB();
 
     const { id } = await params;
-    const provider = await ServiceProvider.findOne({ providerId: id }).populate(
-      'providerId',
-      'name email phoneNumber'
-    );
+    const providerUser = await User.findOne({
+      _id: id,
+      role: { $in: ['veterinarian', 'service_provider'] },
+      isActive: true,
+      isSuspended: false,
+      verificationStatus: 'approved',
+    }).select('name email phoneNumber role');
+    if (!providerUser) return NextResponse.json({ error: 'Provider not found' }, { status: 404 });
+    const profile = providerUser.role === 'veterinarian'
+      ? await Veterinarian.findOne({ vetId: id })
+      : await ServiceProvider.findOne({ providerId: id });
+    if (!profile) return NextResponse.json({ error: 'Provider profile not found' }, { status: 404 });
 
-    if (!provider) return NextResponse.json({ error: 'Provider not found' }, { status: 404 });
-
-    const reviews = await Review.find({ providerId: id })
+    const reviews = await Review.find({ providerId: id, isFlagged: false, removedAt: { $exists: false } })
       .sort({ createdAt: -1 })
       .limit(10)
       .populate('ownerId', 'name');
@@ -39,7 +47,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     return NextResponse.json({
       provider: {
-        ...provider.toObject(),
+        ...profile.toObject(),
+        providerId: providerUser,
+        serviceType: providerUser.role === 'veterinarian' ? ['veterinary'] : profile.serviceType,
         averageRating: Math.round(avgRating * 10) / 10,
         reviewCount: reviews.length,
         recentReviews: reviews,

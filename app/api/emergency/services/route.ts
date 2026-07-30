@@ -9,40 +9,22 @@
  * with meaningful HTTP status codes. Detailed checks remain close to the
  * relevant handler so the business rules can be reviewed in context.
  */
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
 import EmergencyContact from '@/models/EmergencyContact';
 
-// GET /api/emergency/services?lat=...&lng=...
-export async function GET(req: NextRequest) {
+// GET /api/emergency/services
+export async function GET() {
   try {
     await connectDB();
-    const { searchParams } = req.nextUrl;
-    const lat = parseFloat(searchParams.get('lat') || '6.9271');
-    const lng = parseFloat(searchParams.get('lng') || '79.8612');
-    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return NextResponse.json({ error: 'Valid coordinates are required' }, { status: 400 });
-
-    // Get all emergency contacts and sort by distance
-    const contacts = await EmergencyContact.find({ isVerified: true });
-
-    const withDistance = contacts.map((c) => {
-      const R = 6371; // Earth radius in km
-      const dLat = ((c.location.lat - lat) * Math.PI) / 180;
-      const dLng = ((c.location.lng - lng) * Math.PI) / 180;
-      const a =
-        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos((lat * Math.PI) / 180) *
-          Math.cos((c.location.lat * Math.PI) / 180) *
-          Math.sin(dLng / 2) *
-          Math.sin(dLng / 2);
-      const distance = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const contacts = await EmergencyContact.find({ isVerified: true }).sort({ isAvailable: -1, name: 1 });
+    const services = contacts.map((contact) => {
+      const c = contact.toObject();
       const availabilityIsFresh = c.availabilityUpdatedAt && Date.now() - c.availabilityUpdatedAt.getTime() < 30 * 60 * 1000;
-      return { ...c.toObject(), distance: Math.round(distance * 10) / 10, availabilityStatus: availabilityIsFresh ? (c.isAvailable ? 'available' : 'busy') : 'call-to-confirm' };
+      return { ...c, availabilityStatus: availabilityIsFresh ? (c.isAvailable ? 'available' : 'busy') : 'call-to-confirm' };
     });
 
-    withDistance.sort((a, b) => a.distance - b.distance);
-
-    return NextResponse.json({ services: withDistance });
+    return NextResponse.json({ services });
   } catch (error) {
     console.error('Get emergency services error:', error);
     return NextResponse.json({ error: 'Something went wrong' }, { status: 500 });

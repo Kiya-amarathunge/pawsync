@@ -7,7 +7,7 @@ export interface IServiceProvider extends Document {
   serviceType: string[];
   credentials: string;
   specialization: string;
-  location: { address: string; lat: number; lng: number };
+  location: { address: string; lat?: number; lng?: number };
   yearsOfExperience: number;
   isVerified: boolean;
   verificationDocuments: string[];
@@ -42,7 +42,6 @@ const ServiceProviderSchema = new Schema<IServiceProvider>({
   serviceRadiusKm: { type: Number, default: 50, min: 1, max: 500 },
 });
 
-ServiceProviderSchema.index({ providerId: 1 });
 ServiceProviderSchema.index({ 'location.lat': 1, 'location.lng': 1 });
 
 export default mongoose.models.ServiceProvider || mongoose.model<IServiceProvider>('ServiceProvider', ServiceProviderSchema);

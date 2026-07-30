@@ -10,7 +10,7 @@ export interface IVeterinarian extends Document {
   verificationDocuments: string[];
   availability: { dayOfWeek: number; startTime: string; endTime: string }[];
   blockedDates: Date[];
-  location: { address: string; lat: number; lng: number };
+  location: { address: string; lat?: number; lng?: number };
   yearsOfExperience: number;
   pricing: { service: string; price: number; duration: number }[];
   businessDescription: string;
@@ -35,7 +35,5 @@ const VeterinarianSchema = new Schema<IVeterinarian>({
   photos: [{ type: String }],
   serviceRadiusKm: { type: Number, default: 50, min: 1, max: 500 },
 });
-
-VeterinarianSchema.index({ vetId: 1 });
 
 export default mongoose.models.Veterinarian || mongoose.model<IVeterinarian>('Veterinarian', VeterinarianSchema);

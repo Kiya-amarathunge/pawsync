@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
+import ActionDialog from '@/components/ui/ActionDialog';
 
 interface FlaggedPost {
   _id: string;
@@ -29,6 +30,7 @@ export default function ModerationPage() {
   const [posts, setPosts] = useState<FlaggedPost[]>([]);
   const [reviews, setReviews] = useState<FlaggedReview[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pendingAction, setPendingAction] = useState<{ type: 'post' | 'review'; id: string; action: 'remove' | 'dismiss' | 'warn' } | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -48,11 +50,7 @@ export default function ModerationPage() {
 
   useEffect(() => { void load(); }, [load]);
 
-  const act = async (type: 'post' | 'review', id: string, action: 'remove' | 'dismiss' | 'warn') => {
-    const reason = action === 'dismiss'
-      ? 'Report reviewed'
-      : prompt(action === 'warn' ? 'Reason for warning' : 'Reason for removal');
-    if (!reason) return;
+  const act = async (type: 'post' | 'review', id: string, action: 'remove' | 'dismiss' | 'warn', reason: string) => {
     const response = await fetch(`/api/admin/moderation/${type}/${id}/${action}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -62,14 +60,14 @@ export default function ModerationPage() {
     });
     const data = await response.json();
     showToast(response.ok ? data.message : data.error, response.ok ? 'success' : 'error');
-    if (response.ok) await load();
+    if (response.ok) { setPendingAction(null); await load(); }
   };
 
   const actions = (type: 'post' | 'review', id: string) => (
     <div style={{ display: 'flex', gap: 7, marginTop: 12, flexWrap: 'wrap' }}>
-      <button className="btn btn-danger btn-sm" onClick={() => void act(type, id, 'remove')}>Remove</button>
-      <button className="btn btn-secondary btn-sm" onClick={() => void act(type, id, 'warn')}>Warn author</button>
-      <button className="btn btn-secondary btn-sm" onClick={() => void act(type, id, 'dismiss')}>Dismiss report</button>
+      <button className="btn btn-danger btn-sm" onClick={() => setPendingAction({ type, id, action: 'remove' })}>Remove</button>
+      <button className="btn btn-secondary btn-sm" onClick={() => setPendingAction({ type, id, action: 'warn' })}>Warn author</button>
+      <button className="btn btn-secondary btn-sm" onClick={() => setPendingAction({ type, id, action: 'dismiss' })}>Dismiss report</button>
     </div>
   );
 
@@ -99,5 +97,6 @@ export default function ModerationPage() {
       </article>)}
       {posts.length === 0 && reviews.length === 0 && <div className="empty-state"><p>No flagged content.</p></div>}
     </div>}
+    <ActionDialog open={Boolean(pendingAction)} title={pendingAction?.action === 'remove' ? 'Remove reported content' : pendingAction?.action === 'warn' ? 'Warn the author' : 'Dismiss this report'} description={pendingAction?.action === 'dismiss' ? 'Confirm that the report was reviewed and no content action is required.' : 'The reason is recorded in the administrative audit trail.'} confirmLabel={pendingAction?.action === 'remove' ? 'Remove content' : pendingAction?.action === 'warn' ? 'Send warning' : 'Dismiss report'} reasonLabel={pendingAction?.action === 'dismiss' ? undefined : 'Reason'} reasonPlaceholder="Explain the policy or safety concern" minLength={10} danger={pendingAction?.action === 'remove'} onCancel={() => setPendingAction(null)} onConfirm={reason => pendingAction ? act(pendingAction.type, pendingAction.id, pendingAction.action, reason || 'Report reviewed and dismissed') : undefined} />
   </DashboardLayout>;
 }

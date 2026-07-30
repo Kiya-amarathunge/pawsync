@@ -39,8 +39,6 @@ export async function GET(req: NextRequest) {
     const minRating = Number(params.get('minRating')) || 0;
     const maxPrice = Number(params.get('maxPrice')) || Number.POSITIVE_INFINITY;
     const availableOn = params.get('availableOn');
-    const latitude = Number(params.get('lat'));
-    const longitude = Number(params.get('lng'));
     const page = Math.max(1, Number(params.get('page')) || 1);
     const limit = 20;
 
@@ -63,7 +61,13 @@ export async function GET(req: NextRequest) {
       ...serviceProviders.filter(provider => provider.providerId).map(provider => ({ ...provider, serviceType: provider.serviceType || [], providerId: provider.providerId } as ProviderResult)),
       ...veterinarians.filter(vet => vet.vetId).map(vet => ({ ...vet, businessName: `Dr. ${(vet.vetId as unknown as { name: string }).name}`, serviceType: ['veterinary'], providerId: vet.vetId } as ProviderResult)),
     ];
-    const withRatings = await Promise.all(normalized.map(async provider => {
+    // Approved accounts become discoverable only after configuring at least
+    // one priced service and one availability window.
+    const bookable = normalized.filter(provider =>
+      Boolean(provider.availability?.length)
+      && Boolean(provider.pricing?.some(price => provider.serviceType.includes(price.service))),
+    );
+    const withRatings = await Promise.all(bookable.map(async provider => {
       const providerId = String(provider.providerId._id);
       const providerName = provider.providerId.name;
       const providerEmail = provider.providerId.email;
@@ -75,14 +79,7 @@ export async function GET(req: NextRequest) {
       const accepted = appointments.filter(appointment => ['confirmed', 'completed'].includes(appointment.status)).length;
       const responseSamples = appointments.filter(appointment => appointment.statusUpdatedAt).map(appointment => (new Date(appointment.statusUpdatedAt!).getTime() - new Date(appointment.createdAt).getTime()) / 60_000);
       const responseTimeMinutes = responseSamples.length ? Math.round(responseSamples.reduce((sum, value) => sum + value, 0) / responseSamples.length) : null;
-      let distanceKm: number | null = null;
-      if (Number.isFinite(latitude) && Number.isFinite(longitude) && provider.location?.lat != null && provider.location?.lng != null) {
-        const dLat = (provider.location.lat - latitude) * Math.PI / 180;
-        const dLng = (provider.location.lng - longitude) * Math.PI / 180;
-        const a = Math.sin(dLat / 2) ** 2 + Math.cos(latitude * Math.PI / 180) * Math.cos(provider.location.lat * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
-        distanceKm = Math.round(6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 10) / 10;
-      }
-      return { ...provider, providerId, providerName, providerEmail, averageRating: Math.round((stats[0]?.averageRating || 0) * 10) / 10, reviewCount: stats[0]?.reviewCount || 0, acceptanceRate: appointments.length ? Math.round(accepted / appointments.length * 100) : 100, responseTimeMinutes, distanceKm, isFavorite: favorites.has(providerId) };
+      return { ...provider, providerId, providerName, providerEmail, averageRating: Math.round((stats[0]?.averageRating || 0) * 10) / 10, reviewCount: stats[0]?.reviewCount || 0, acceptanceRate: appointments.length ? Math.round(accepted / appointments.length * 100) : 100, responseTimeMinutes, isFavorite: favorites.has(providerId) };
     }));
     const day = availableOn ? new Date(`${availableOn}T00:00:00`).getDay() : null;
     const filtered = withRatings.filter(provider => {

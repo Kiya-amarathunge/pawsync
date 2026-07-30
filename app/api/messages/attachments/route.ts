@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { mkdir, writeFile } from 'fs/promises';
 import crypto from 'crypto';
 import path from 'path';
+import mongoose from 'mongoose';
 import connectDB from '@/lib/db';
 import Message from '@/models/Message';
 import User from '@/models/User';
@@ -25,8 +26,13 @@ export async function POST(req: NextRequest) {
     const user = getRequestUser(req);
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const form = await req.formData(); const receiverId = String(form.get('receiverId') || ''); const file = form.get('file');
+    if (!mongoose.isValidObjectId(receiverId)) return NextResponse.json({ error: 'Recipient is invalid' }, { status: 400 });
     const receiver = await User.findOne({ _id: receiverId, isActive: true, isSuspended: false });
     if (!receiver || !(file instanceof File)) return NextResponse.json({ error: 'Recipient and file are required' }, { status: 400 });
+    const roles = new Set([user.role, receiver.role]);
+    if (!roles.has('pet_owner') || (!roles.has('veterinarian') && !roles.has('service_provider'))) {
+      return NextResponse.json({ error: 'Attachments are limited to pet owner and provider conversations' }, { status: 403 });
+    }
     if (!['image/jpeg', 'image/png', 'application/pdf'].includes(file.type) || file.size > 10 * 1024 * 1024) return NextResponse.json({ error: 'Attachment must be PDF, JPG, or PNG and no larger than 10MB' }, { status: 400 });
     const storageKey = `${crypto.randomUUID()}${path.extname(file.name).toLowerCase().replace(/[^.a-z0-9]/g, '')}`;
     const directory = path.join(process.cwd(), 'storage', 'message-attachments'); await mkdir(directory, { recursive: true });

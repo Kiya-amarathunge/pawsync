@@ -24,7 +24,7 @@ export default function EarningsPage() {
 
       if (!response.ok) {
         const data = await response.json().catch(() => null);
-        throw new Error(data?.error || 'Unable to generate financial report');
+        throw new Error(data?.error || 'Unable to generate appointment value report');
       }
 
       const blob = await response.blob();
@@ -35,14 +35,14 @@ export default function EarningsPage() {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `pawsync-financial-report-${new Date().toISOString().slice(0, 10)}.pdf`;
+      anchor.download = `pawsync-appointment-value-report-${new Date().toISOString().slice(0, 10)}.pdf`;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-      showToast('Financial report downloaded', 'success');
+      showToast('Appointment value report downloaded', 'success');
     } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Unable to download financial report', 'error');
+      showToast(error instanceof Error ? error.message : 'Unable to download appointment value report', 'error');
     } finally {
       setIsDownloading(false);
     }
@@ -61,10 +61,10 @@ export default function EarningsPage() {
       <div className="animate-fadeIn">
         <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
-            <h1 className="page-title">Earnings</h1>
-            <p className="page-subtitle">Track your revenue and financial performance</p>
+            <h1 className="page-title">Estimated Earnings</h1>
+            <p className="page-subtitle">Appointment values from completed services; PawSync does not process payments</p>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}><button className="btn btn-secondary" disabled={isDownloading || !token} onClick={() => void downloadReport()}>{isDownloading ? <LoaderCircle className="spin" size={17} /> : <Download size={17} />} {isDownloading ? 'Preparing report...' : 'Financial report'}</button><select className="input" style={{ maxWidth: 160 }} value={period} onChange={e => setPeriod(e.target.value)}>
+          <div style={{ display: 'flex', gap: 8 }}><button className="btn btn-secondary" disabled={isDownloading || !token} onClick={() => void downloadReport()}>{isDownloading ? <LoaderCircle className="spin" size={17} /> : <Download size={17} />} {isDownloading ? 'Preparing report...' : 'Appointment value report'}</button><select className="input" style={{ maxWidth: 160 }} value={period} onChange={e => setPeriod(e.target.value)}>
             <option value="daily">Daily</option>
             <option value="weekly">Weekly</option>
             <option value="monthly">Monthly</option>
@@ -80,7 +80,7 @@ export default function EarningsPage() {
           marginBottom: 24,
           textAlign: 'center',
         }}>
-          <p style={{ fontSize: 14, opacity: 0.8, marginBottom: 8, textTransform: 'capitalize' }}>{period} Total</p>
+          <p style={{ fontSize: 14, opacity: 0.8, marginBottom: 8, textTransform: 'capitalize' }}>{period} estimated total</p>
           <p style={{ fontSize: 48, fontWeight: 700 }}>
             {isLoading ? '...' : `Rs. ${(earnings?.total || 0).toLocaleString()}`}
           </p>
@@ -88,7 +88,7 @@ export default function EarningsPage() {
 
         {/* Breakdown */}
         <div className="card" style={{ padding: 24 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20 }}>Revenue Breakdown</h2>
+          <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20 }}>Appointment Value Breakdown</h2>
           {isLoading ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {[1, 2, 3, 4].map(i => <div key={i} className="skeleton" style={{ height: 40 }} />)}
@@ -96,7 +96,7 @@ export default function EarningsPage() {
           ) : earnings?.labels?.length === 0 ? (
             <div className="empty-state">
               <div className="empty-state-icon">💰</div>
-              <p className="empty-state-title">No earnings data yet</p>
+              <p className="empty-state-title">No completed appointment values yet</p>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

@@ -22,10 +22,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const parsed = updateSchema.safeParse(await req.json());
     if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
     const { id } = await params;
-    const { lat, lng, ...details } = parsed.data;
-    const update: Record<string, unknown> = { ...details };
-    if (lat !== undefined) update['location.lat'] = lat;
-    if (lng !== undefined) update['location.lng'] = lng;
+    const update: Record<string, unknown> = { ...parsed.data };
     if (parsed.data.isAvailable !== undefined) update.availabilityUpdatedAt = new Date();
     const service = await EmergencyContact.findByIdAndUpdate(id, { $set: update }, { returnDocument: 'after', runValidators: true });
     if (!service) return NextResponse.json({ error: 'Emergency service not found' }, { status: 404 });

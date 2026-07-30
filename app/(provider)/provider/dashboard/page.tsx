@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import DashboardLayout from '@/components/layout/DashboardLayout';
+import { useToast } from '@/context/ToastContext';
 
 export default function ProviderDashboardPage() {
   const { token } = useAuth();
@@ -25,7 +26,7 @@ export default function ProviderDashboardPage() {
   const statCards = stats ? [
     { label: "Today's Appointments", value: stats.todayAppointments, icon: '📅', color: 'var(--blue)', bg: 'var(--blue-light)' },
     { label: 'Pending Requests', value: stats.pendingRequests, icon: '⏳', color: 'var(--accent)', bg: 'var(--accent-light)' },
-    { label: 'Week Revenue', value: `Rs. ${(stats.weekRevenue || 0).toLocaleString()}`, icon: '💰', color: 'var(--primary)', bg: 'var(--primary-light)' },
+    { label: 'Week Appointment Value', value: `Rs. ${(stats.weekRevenue || 0).toLocaleString()}`, icon: '💰', color: 'var(--primary)', bg: 'var(--primary-light)' },
     { label: 'Average Rating', value: `${stats.averageRating || 0} ⭐`, icon: '⭐', color: '#f59e0b', bg: '#fffbeb' },
   ] : [];
 
@@ -91,18 +92,24 @@ export default function ProviderDashboardPage() {
 }
 
 function AcceptRejectButtons({ appointmentId, token }: { appointmentId: string; token: string }) {
+  const { showToast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [done, setDone] = useState('');
 
   const updateStatus = async (status: string) => {
     setIsLoading(true);
     try {
-      await fetch(`/api/appointments/${appointmentId}/status`, {
+      const response = await fetch(`/api/appointments/${appointmentId}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ status }),
       });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Unable to update appointment');
       setDone(status);
+      showToast(data.message, 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Unable to update appointment', 'error');
     } finally {
       setIsLoading(false);
     }

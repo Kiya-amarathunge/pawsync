@@ -16,12 +16,40 @@ import Veterinarian from '@/models/Veterinarian';
 import ServiceProvider from '@/models/ServiceProvider';
 import { sendProviderPendingEmail } from '@/lib/mailer';
 import { registerSchema } from '@/lib/validations/auth';
+import { saveProviderCredential, validateUpload } from '@/lib/file-storage';
 
 export async function POST(req: NextRequest) {
   try {
     await connectDB();
 
-    const body = await req.json();
+    const isMultipart = req.headers.get('content-type')?.includes('multipart/form-data');
+    let verificationDocument: FormDataEntryValue | null = null;
+    let body: Record<string, unknown>;
+    if (isMultipart) {
+      const formData = await req.formData();
+      let serviceType: string[] = [];
+      try {
+        serviceType = JSON.parse(String(formData.get('serviceType') || '[]'));
+      } catch {
+        serviceType = [];
+      }
+      verificationDocument = formData.get('verificationDocument');
+      body = {
+        email: String(formData.get('email') || ''),
+        password: String(formData.get('password') || ''),
+        name: String(formData.get('name') || ''),
+        phoneNumber: String(formData.get('phoneNumber') || ''),
+        role: String(formData.get('role') || ''),
+        licenseNumber: String(formData.get('licenseNumber') || ''),
+        specialization: String(formData.get('specialization') || ''),
+        businessName: String(formData.get('businessName') || ''),
+        businessRegistrationNumber: String(formData.get('businessRegistrationNumber') || ''),
+        serviceType,
+        acceptedTerms: String(formData.get('acceptedTerms') || '') === 'true',
+      };
+    } else {
+      body = await req.json();
+    }
 
     const result = registerSchema.safeParse(body);
     if (!result.success) {
@@ -31,7 +59,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { email, password, name, phoneNumber, role, licenseNumber, specialization, businessName, serviceType } = result.data;
+    const { email, password, name, phoneNumber, role, licenseNumber, specialization, businessName } = result.data;
+    if (role !== 'pet_owner') {
+      const fileError = validateUpload(verificationDocument, ['application/pdf', 'image/jpeg', 'image/png'], 10);
+      if (fileError) return NextResponse.json({ error: fileError }, { status: 400 });
+    }
 
     const existingUser = await User.findOne({ email });
     if (existingUser) {
@@ -43,6 +75,9 @@ export async function POST(req: NextRequest) {
 
     const isActive = role === 'pet_owner';
 
+    const storedDocument = verificationDocument instanceof File
+      ? await saveProviderCredential(verificationDocument)
+      : null;
     const user = await User.create({
       email,
       password,
@@ -60,7 +95,7 @@ export async function POST(req: NextRequest) {
         businessRegistrationNumber: body.businessRegistrationNumber || '',
         specialization: specialization || '',
         isVerified: false,
-        verificationDocuments: [],
+        verificationDocuments: storedDocument ? [storedDocument.storageKey] : [],
         availability: [],
         blockedDates: [],
         pricing: [],
@@ -73,9 +108,9 @@ export async function POST(req: NextRequest) {
         providerId: user._id,
         businessName,
         businessRegistrationNumber: body.businessRegistrationNumber || '',
-        serviceType: serviceType || [],
+        serviceType: result.data.serviceType || [],
         isVerified: false,
-        verificationDocuments: [],
+        verificationDocuments: storedDocument ? [storedDocument.storageKey] : [],
         availability: [],
         blockedDates: [],
         pricing: [],

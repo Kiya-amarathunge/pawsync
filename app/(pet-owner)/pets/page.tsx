@@ -8,6 +8,7 @@ import { FileDown, FilePlus2, Pencil, Plus, Scale, Syringe, Trash2, Upload, X } 
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
+import ActionDialog from '@/components/ui/ActionDialog';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
 
@@ -40,6 +41,7 @@ export default function PetsPage() {
   const [editingMedicationId, setEditingMedicationId] = useState('');
   const [chartData, setChartData] = useState<ChartData | null>(null);
   const [weightEntry, setWeightEntry] = useState({ weight: '', date: new Date().toISOString().slice(0, 10) });
+  const [pendingDelete, setPendingDelete] = useState<{ kind: 'pet' | 'health'; type?: 'vaccinations' | 'medications'; recordId?: string } | null>(null);
 
   const selected = pets.find(pet => pet._id === selectedId) || null;
   const headers = { Authorization: `Bearer ${token}` };
@@ -95,12 +97,14 @@ export default function PetsPage() {
     setEditing(true); setShowPetForm(true);
   };
 
-  const removePet = async () => {
-    if (!selected || !confirm(`Delete ${selected.name} and all health records?`)) return;
+  const removePet = () => setPendingDelete({ kind: 'pet' });
+
+  const confirmRemovePet = async () => {
+    if (!selected) return;
     const response = await fetch(`/api/pets/${selected._id}`, { method: 'DELETE', headers });
     const data = await response.json();
     if (!response.ok) return showToast(data.error, 'error');
-    setSelectedId(''); showToast(data.message, 'success'); await loadPets();
+    setPendingDelete(null); setSelectedId(''); showToast(data.message, 'success'); await loadPets();
   };
 
   const uploadFile = async (file: File, kind: 'photo' | 'medical') => {
@@ -163,15 +167,18 @@ export default function PetsPage() {
     });
   };
 
-  const deleteHealthEntry = async (type: 'vaccinations' | 'medications', recordId: string) => {
-    if (!selected || !confirm(`Delete this ${type === 'vaccinations' ? 'vaccination' : 'medication'} record?`)) return;
+  const deleteHealthEntry = (type: 'vaccinations' | 'medications', recordId: string) => setPendingDelete({ kind: 'health', type, recordId });
+
+  const confirmDeleteHealthEntry = async () => {
+    if (!selected || pendingDelete?.kind !== 'health' || !pendingDelete.type || !pendingDelete.recordId) return;
+    const { type, recordId } = pendingDelete;
     const response = await fetch(`/api/pets/${selected._id}/${type}?recordId=${recordId}`, {
       method: 'DELETE',
       headers,
     });
     const data = await response.json();
     showToast(response.ok ? data.message : data.error, response.ok ? 'success' : 'error');
-    if (response.ok) await loadPets();
+    if (response.ok) { setPendingDelete(null); await loadPets(); }
   };
 
   const addWeight = async (event: FormEvent) => {
@@ -202,6 +209,7 @@ export default function PetsPage() {
     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center', marginBottom: 24 }}>
       <div><h1 className="page-title">Pet profiles</h1><p className="page-subtitle">Health, documents, vaccinations, medication and sharing</p></div>
       <button className="btn btn-primary" onClick={() => { setEditing(false); setPetForm(emptyPet); setShowPetForm(true); }}><Plus size={18} /> Add pet</button>
+      <ActionDialog open={Boolean(pendingDelete)} title={pendingDelete?.kind === 'pet' ? `Delete ${selected?.name || 'pet'}` : `Delete ${pendingDelete?.type === 'vaccinations' ? 'vaccination' : 'medication'} record`} description={pendingDelete?.kind === 'pet' ? 'This permanently deletes the pet profile and all associated health records. This cannot be undone.' : 'This health detail will be permanently removed from the pet profile.'} confirmLabel="Delete permanently" danger onCancel={() => setPendingDelete(null)} onConfirm={() => pendingDelete?.kind === 'pet' ? confirmRemovePet() : confirmDeleteHealthEntry()} />
     </div>
 
     {showPetForm && <form onSubmit={submitPet} className="card" style={{ padding: 20, marginBottom: 20 }}>

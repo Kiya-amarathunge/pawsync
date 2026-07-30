@@ -5,6 +5,7 @@ import { Download, FileQuestion, ShieldCheck, X } from 'lucide-react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
+import ActionDialog from '@/components/ui/ActionDialog';
 
 interface PendingUser {
   _id: string;
@@ -29,6 +30,7 @@ export default function VerificationsPage() {
   const { showToast } = useToast();
   const [pending, setPending] = useState<PendingUser[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pendingAction, setPendingAction] = useState<{ id: string; type: 'reject' | 'request-info' } | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -41,12 +43,11 @@ export default function VerificationsPage() {
   useEffect(() => { void load(); }, [load]);
 
   const action = async (id: string, type: 'approve' | 'reject') => {
-    const reason = type === 'reject' ? prompt('Reason for rejection') : undefined;
-    if (type === 'reject' && !reason) return;
+    if (type === 'reject') { setPendingAction({ id, type: 'reject' }); return; }
     const response = await fetch(`/api/admin/verifications/${id}/${type}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ reason }),
+      body: JSON.stringify({}),
     });
     const data = await response.json();
     showToast(response.ok ? data.message : data.error, response.ok ? 'success' : 'error');
@@ -54,16 +55,20 @@ export default function VerificationsPage() {
   };
 
   const requestInfo = async (id: string) => {
-    const note = prompt('What additional information is required?');
-    if (!note) return;
-    const response = await fetch(`/api/admin/verifications/${id}/request-info`, {
+    setPendingAction({ id, type: 'request-info' });
+  };
+
+  const submitPendingAction = async (reason: string) => {
+    if (!pendingAction) return;
+    const endpoint = pendingAction.type === 'reject' ? 'reject' : 'request-info';
+    const response = await fetch(`/api/admin/verifications/${pendingAction.id}/${endpoint}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ note }),
+      body: JSON.stringify(pendingAction.type === 'reject' ? { reason } : { note: reason }),
     });
     const data = await response.json();
     showToast(response.ok ? data.message : data.error, response.ok ? 'success' : 'error');
-    if (response.ok) await load();
+    if (response.ok) { setPendingAction(null); await load(); }
   };
 
   const download = async (id: string, document: string) => {
@@ -95,5 +100,6 @@ export default function VerificationsPage() {
       </article>)}
       {pending.length === 0 && <div className="empty-state"><p>No pending provider applications.</p></div>}
     </div>}
+    <ActionDialog open={Boolean(pendingAction)} title={pendingAction?.type === 'reject' ? 'Reject provider application' : 'Request more information'} description={pendingAction?.type === 'reject' ? 'The applicant will remain unable to offer services. Give a clear reason they can understand.' : 'Explain exactly which evidence or information the applicant must provide.'} confirmLabel={pendingAction?.type === 'reject' ? 'Reject application' : 'Send request'} reasonLabel={pendingAction?.type === 'reject' ? 'Reason for rejection' : 'Information required'} reasonPlaceholder="Enter a clear, professional explanation" minLength={10} danger={pendingAction?.type === 'reject'} onCancel={() => setPendingAction(null)} onConfirm={submitPendingAction} />
   </DashboardLayout>;
 }

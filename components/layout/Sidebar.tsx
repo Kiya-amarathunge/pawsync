@@ -16,7 +16,7 @@ const petOwnerNav: NavSection[] = [
 
 const providerNav: NavSection[] = [
   { section: 'Workspace', items: [{ href: '/provider/dashboard', icon: Home, label: 'Dashboard' }, { href: '/provider/appointments', icon: CalendarDays, label: 'Appointments' }, { href: '/provider/clients', icon: PawPrint, label: 'Clients & Patients' }] },
-  { section: 'Practice', items: [{ href: '/provider/profile', icon: Settings, label: 'Profile & Services' }, { href: '/provider/availability', icon: FileClock, label: 'Availability' }, { href: '/provider/reviews', icon: Star, label: 'Reviews' }, { href: '/provider/earnings', icon: CircleDollarSign, label: 'Earnings' }] },
+  { section: 'Practice', items: [{ href: '/provider/profile', icon: Settings, label: 'Profile & Services' }, { href: '/provider/availability', icon: FileClock, label: 'Availability' }, { href: '/provider/reviews', icon: Star, label: 'Reviews' }, { href: '/provider/earnings', icon: CircleDollarSign, label: 'Estimated Earnings' }] },
   { section: 'Connect', items: [{ href: '/messages', icon: MessageSquare, label: 'Messages' }, { href: '/disputes', icon: CircleHelp, label: 'Disputes' }, { href: '/notifications', icon: Bell, label: 'Notifications' }] },
 ];
 

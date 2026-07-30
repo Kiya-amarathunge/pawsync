@@ -37,6 +37,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const { id } = await params;
     const user = await User.findById(id);
     if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    const profile = user.role === 'veterinarian'
+      ? await Veterinarian.findOne({ vetId: user._id })
+      : user.role === 'service_provider'
+        ? await ServiceProvider.findOne({ providerId: user._id })
+        : null;
+    if (!profile || profile.verificationDocuments.length === 0) {
+      return NextResponse.json({ error: 'At least one credential document must be reviewed before approval' }, { status: 409 });
+    }
     // Admin approval confirms and activates the applicant in one evaluator-friendly step.
     user.isVerified = true;
     user.isActive = true;
@@ -64,7 +72,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
         <h2 style="color:#1D9E75">Account Approved! 🎉</h2>
         <p>Hi ${user.name},</p>
-        <p>Your PawSync account has been reviewed and approved. You can now log in and start offering your services.</p>
+        <p>Your PawSync account has been reviewed and approved. You can now log in and configure your services, prices and availability. Your profile appears in the owner directory after that setup is complete.</p>
         <a href="${process.env.NEXT_PUBLIC_APP_URL}/login" style="display:inline-block;background:#1D9E75;color:white;padding:12px 24px;border-radius:6px;text-decoration:none;margin:20px 0">Log In Now</a>
       </div>`,
       });
@@ -82,7 +90,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       justification: 'Credentials verified and approved',
     });
 
-    return NextResponse.json({ message: 'Provider approved successfully' });
+    return NextResponse.json({ message: 'Provider approved. They can now configure pricing and availability before appearing in the directory.' });
   } catch (error) {
     console.error('Approve provider error:', error);
     return NextResponse.json({ error: 'Something went wrong' }, { status: 500 });

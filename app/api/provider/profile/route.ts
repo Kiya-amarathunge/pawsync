@@ -17,7 +17,7 @@ import Veterinarian from '@/models/Veterinarian';
 import { getRequestUser, hasRole } from '@/lib/request-auth';
 
 const serviceSchema = z.object({
-  service: z.string().trim().min(1).max(80),
+  service: z.enum(['veterinary', 'grooming', 'training', 'sitting', 'boarding']),
   price: z.number().nonnegative().max(10_000_000),
   duration: z.number().int().min(15).max(480),
 });
@@ -28,10 +28,20 @@ const profileSchema = z.object({
   specialization: z.string().trim().max(500).optional(),
   credentials: z.string().trim().max(2000).optional(),
   yearsOfExperience: z.number().int().min(0).max(80).optional(),
-  location: z.object({ address: z.string().trim().max(500), lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) }).optional(),
-  serviceRadiusKm: z.number().min(1).max(500).optional(),
+  location: z.object({ address: z.string().trim().max(500), lat: z.number().min(-90).max(90).optional(), lng: z.number().min(-180).max(180).optional() }).optional(),
   serviceType: z.array(z.enum(['veterinary', 'grooming', 'training', 'sitting', 'boarding'])).optional(),
   pricing: z.array(serviceSchema).max(30).optional(),
+}).superRefine((data, context) => {
+  if (!data.serviceType || !data.pricing) return;
+  data.pricing.forEach((price, index) => {
+    if (!data.serviceType!.includes(price.service)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['pricing', index, 'service'],
+        message: `${price.service} must also be selected as a service category`,
+      });
+    }
+  });
 });
 
 async function findProfile(userId: string, role: string) {

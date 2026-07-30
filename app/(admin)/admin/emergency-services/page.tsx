@@ -5,13 +5,13 @@ import { Check, Pencil, Plus, ShieldAlert, Trash2, X } from 'lucide-react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
+import ActionDialog from '@/components/ui/ActionDialog';
 
 interface EmergencyService {
   _id: string;
   name: string;
   address: string;
   phone: string;
-  location: { lat: number; lng: number };
   is24Hours: boolean;
   specializations: string[];
   isVerified: boolean;
@@ -22,8 +22,6 @@ const emptyForm = {
   name: '',
   address: '',
   phone: '',
-  lat: '',
-  lng: '',
   is24Hours: false,
   specializations: '',
 };
@@ -36,6 +34,7 @@ export default function AdminEmergencyServicesPage() {
   const [editingId, setEditingId] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [deletingService, setDeletingService] = useState<EmergencyService | null>(null);
   const headers = { Authorization: `Bearer ${token}` };
 
   const loadServices = useCallback(async () => {
@@ -65,8 +64,6 @@ export default function AdminEmergencyServicesPage() {
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...form,
-          lat: Number(form.lat),
-          lng: Number(form.lng),
           specializations: form.specializations.split(',').map(value => value.trim()).filter(Boolean),
         }),
       },
@@ -85,8 +82,6 @@ export default function AdminEmergencyServicesPage() {
       name: service.name,
       address: service.address,
       phone: service.phone,
-      lat: String(service.location.lat),
-      lng: String(service.location.lng),
       is24Hours: service.is24Hours,
       specializations: service.specializations.join(', '),
     });
@@ -105,11 +100,10 @@ export default function AdminEmergencyServicesPage() {
   };
 
   const remove = async (service: EmergencyService) => {
-    if (!confirm(`Delete ${service.name}?`)) return;
     const response = await fetch(`/api/admin/emergency-services/${service._id}`, { method: 'DELETE', headers });
     const data = await response.json();
     showToast(response.ok ? data.message : data.error, response.ok ? 'success' : 'error');
-    if (response.ok) await loadServices();
+    if (response.ok) { setDeletingService(null); await loadServices(); }
   };
 
   return <DashboardLayout>
@@ -124,8 +118,6 @@ export default function AdminEmergencyServicesPage() {
         <input className="input" placeholder="Clinic name" value={form.name} onChange={event => setForm(value => ({ ...value, name: event.target.value }))} required />
         <input className="input" placeholder="Phone number" value={form.phone} onChange={event => setForm(value => ({ ...value, phone: event.target.value }))} required />
         <input className="input" placeholder="Address" value={form.address} onChange={event => setForm(value => ({ ...value, address: event.target.value }))} required />
-        <input className="input" type="number" step="any" min="-90" max="90" placeholder="Latitude" value={form.lat} onChange={event => setForm(value => ({ ...value, lat: event.target.value }))} required />
-        <input className="input" type="number" step="any" min="-180" max="180" placeholder="Longitude" value={form.lng} onChange={event => setForm(value => ({ ...value, lng: event.target.value }))} required />
         <input className="input" placeholder="Specializations, separated by commas" value={form.specializations} onChange={event => setForm(value => ({ ...value, specializations: event.target.value }))} />
       </div>
       <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14 }}><input type="checkbox" checked={form.is24Hours} onChange={event => setForm(value => ({ ...value, is24Hours: event.target.checked }))} /> Open 24 hours</label>
@@ -135,7 +127,7 @@ export default function AdminEmergencyServicesPage() {
     {loading ? <div className="skeleton" style={{ height: 150 }} /> : services.length === 0 ? <div className="empty-state"><ShieldAlert size={32} /><p>No emergency clinics have been registered.</p></div> : <div style={{ display: 'grid', gap: 10 }}>
       {services.map(service => <article key={service._id} className="card" style={{ padding: 17, display: 'grid', gap: 10 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'flex-start' }}>
-          <div><h2 style={{ fontSize: 16 }}>{service.name}</h2><p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{service.address} · {service.phone}</p><p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>{service.location.lat}, {service.location.lng} · {service.is24Hours ? '24 hours' : 'Limited hours'} · {service.specializations.join(', ') || 'General emergency care'}</p></div>
+          <div><h2 style={{ fontSize: 16 }}>{service.name}</h2><p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{service.address} · {service.phone}</p><p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>{service.is24Hours ? 'Open 24 hours' : 'Limited hours'} · {service.specializations.join(', ') || 'General emergency care'}</p></div>
           <div style={{ display: 'flex', gap: 6 }}><span className={`badge ${service.isVerified ? 'badge-green' : 'badge-orange'}`}>{service.isVerified ? 'Approved' : 'Pending'}</span><span className={`badge ${service.isAvailable ? 'badge-blue' : 'badge-gray'}`}>{service.isAvailable ? 'Available' : 'Busy'}</span></div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -143,9 +135,10 @@ export default function AdminEmergencyServicesPage() {
           {service.isVerified && <button className="btn btn-secondary btn-sm" onClick={() => void updateStatus(service, { isVerified: false })}>Move to pending</button>}
           <button className="btn btn-secondary btn-sm" onClick={() => void updateStatus(service, { isAvailable: !service.isAvailable })}>{service.isAvailable ? 'Mark busy' : 'Mark available'}</button>
           <button className="btn btn-secondary btn-sm" onClick={() => edit(service)}><Pencil size={15} /> Edit</button>
-          <button className="btn btn-danger btn-sm" onClick={() => void remove(service)}><Trash2 size={15} /> Delete</button>
+          <button className="btn btn-danger btn-sm" onClick={() => setDeletingService(service)}><Trash2 size={15} /> Delete</button>
         </div>
       </article>)}
     </div>}
+    <ActionDialog open={Boolean(deletingService)} title="Delete emergency clinic" description={`${deletingService?.name || 'This clinic'} will be removed from the pet-owner emergency directory.`} confirmLabel="Delete clinic" danger onCancel={() => setDeletingService(null)} onConfirm={() => deletingService ? remove(deletingService) : undefined} />
   </DashboardLayout>;
 }

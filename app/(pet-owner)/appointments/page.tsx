@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import DashboardLayout from '@/components/layout/DashboardLayout';
+import ActionDialog from '@/components/ui/ActionDialog';
 
 const statusColors: Record<string, string> = {
   pending: 'badge-orange', confirmed: 'badge-blue',
@@ -10,7 +11,7 @@ const statusColors: Record<string, string> = {
 };
 
 const serviceIcons: Record<string, string> = {
-  veterinary: '🏥', grooming: '✂️', training: '🎓', boarding: '🏠',
+  veterinary: '🏥', grooming: '✂️', training: '🎓', boarding: '🏠', sitting: '🐾',
 };
 
 export default function AppointmentsPage() {
@@ -34,6 +35,7 @@ export default function AppointmentsPage() {
   const [selectedProvider, setSelectedProvider] = useState<any>(null);
   const [availableSlots, setAvailableSlots] = useState<any[]>([]);
   const [isBooking, setIsBooking] = useState(false);
+  const [cancellingId, setCancellingId] = useState('');
   const handledProviderLink = useRef(false);
   const [booking, setBooking] = useState({
     serviceType: '', providerId: '', petId: '',
@@ -175,7 +177,6 @@ export default function AppointmentsPage() {
   };
 
   const handleCancel = async (id: string) => {
-    if (!confirm('Cancel this appointment? This must be done at least 24 hours in advance.')) return;
     try {
       const res = await fetch(`/api/appointments/${id}/cancel`, {
         method: 'PATCH',
@@ -184,6 +185,7 @@ export default function AppointmentsPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       showToast('Appointment cancelled', 'success');
+      setCancellingId('');
       fetchAppointments();
     } catch (err: any) {
       showToast(err.message, 'error');
@@ -240,6 +242,7 @@ export default function AppointmentsPage() {
     { type: 'grooming', icon: '✂️', label: 'Grooming', desc: 'Pet grooming session' },
     { type: 'training', icon: '🎓', label: 'Training', desc: 'Professional training' },
     { type: 'boarding', icon: '🏠', label: 'Boarding', desc: 'Pet boarding/sitting' },
+    { type: 'sitting', icon: '🐾', label: 'Pet Sitting', desc: 'Care in the pet owner’s home' },
   ];
 
   // Owners may book today; the availability API removes times that have passed.
@@ -320,6 +323,7 @@ export default function AppointmentsPage() {
                 {appt.price > 0 && (
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
                     <p style={{ fontSize: 18, fontWeight: 700, color: 'var(--primary)' }}>Rs. {appt.price.toLocaleString()}</p>
+                    <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>Appointment value</p>
                     <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>{appt.duration} min</p>
                   </div>
                 )}
@@ -327,7 +331,7 @@ export default function AppointmentsPage() {
                   {appt.status === 'rescheduled' && <button className="btn btn-primary btn-sm" onClick={() => void acceptProposedTime(appt._id)}>Accept new time</button>}
                   {appt.status === 'completed' && <button className="btn btn-secondary btn-sm" onClick={() => setReviewAppointment(appt)}>Review</button>}
                   {['pending', 'confirmed'].includes(appt.status) && (
-                    <><button className="btn btn-secondary btn-sm" onClick={() => setReschedulingId(appt._id)}>Reschedule</button><button className="btn btn-danger btn-sm" onClick={() => handleCancel(appt._id)}>Cancel</button></>
+                    <><button className="btn btn-secondary btn-sm" onClick={() => setReschedulingId(appt._id)}>Reschedule</button><button className="btn btn-danger btn-sm" onClick={() => setCancellingId(appt._id)}>Cancel</button></>
                   )}
                 </div>
                 {reschedulingId === appt._id && <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}><input className="input" type="datetime-local" min={minRescheduleDate} value={rescheduleDateTime} onChange={event => setRescheduleDateTime(event.target.value)} /><button className="btn btn-primary btn-sm" onClick={() => void handleReschedule(appt._id)}>Submit</button><button className="btn btn-ghost btn-sm" onClick={() => setReschedulingId('')}>Close</button></div>}
@@ -522,6 +526,10 @@ export default function AppointmentsPage() {
                       </div>
                     ))}
                   </div>
+                  <div style={{ padding: 13, marginBottom: 18, border: '1px solid #d7e7e1', borderRadius: 6, background: '#f4faf7', color: 'var(--text-secondary)', fontSize: 12, lineHeight: 1.55 }}>
+                    <strong style={{ display: 'block', color: 'var(--text-primary)', marginBottom: 3 }}>Cancellation and rescheduling policy</strong>
+                    Owners must cancel or request a new time at least 24 hours before the appointment. Provider-proposed changes require owner acceptance. The displayed Rs. {booking.price.toLocaleString()} is an appointment value; PawSync does not collect payment.
+                  </div>
                   <div style={{ display: 'flex', gap: 12 }}>
                     <button className="btn btn-outline" onClick={() => setBookingStep(3)}>← Back</button>
                     <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleConfirmBooking} disabled={isBooking}>
@@ -533,6 +541,7 @@ export default function AppointmentsPage() {
             </div>
           </div>
         )}
+        <ActionDialog open={Boolean(cancellingId)} title="Cancel this appointment" description="Cancellation is allowed only when the appointment is at least 24 hours away. The provider will be notified." confirmLabel="Cancel appointment" danger onCancel={() => setCancellingId('')} onConfirm={() => handleCancel(cancellingId)} />
       </div>
     </DashboardLayout>
   );

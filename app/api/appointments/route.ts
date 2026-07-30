@@ -23,7 +23,7 @@ import { createNotification } from '@/lib/notifications';
 
 const bookingSchema = z.object({
   petId: z.string().min(1), providerId: z.string().min(1),
-  serviceType: z.enum(['veterinary', 'grooming', 'training', 'boarding']),
+  serviceType: z.enum(['veterinary', 'grooming', 'training', 'boarding', 'sitting']),
   dateTime: z.string().datetime(), duration: z.number().int().min(15).max(480).optional(),
   notes: z.string().trim().max(2000).optional().default(''),
 });

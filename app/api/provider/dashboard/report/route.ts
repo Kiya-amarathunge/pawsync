@@ -17,11 +17,11 @@ import { getRequestUser, hasRole } from '@/lib/request-auth';
 
 function renderReport(rows: Array<{ dateTime: Date; serviceType: string; price: number }>, providerName: string) {
   return new Promise<Buffer>((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 50, info: { Title: 'PawSync Financial Report' } }); const chunks: Buffer[] = [];
+    const doc = new PDFDocument({ margin: 50, info: { Title: 'PawSync Appointment Value Report' } }); const chunks: Buffer[] = [];
     doc.on('data', chunk => chunks.push(Buffer.from(chunk))); doc.on('end', () => resolve(Buffer.concat(chunks))); doc.on('error', reject);
-    doc.fontSize(22).fillColor('#1d6f55').text('PawSync Financial Report'); doc.moveDown(0.5).fontSize(11).fillColor('#333').text(`Provider: ${providerName}`); doc.text(`Generated: ${new Date().toLocaleString()}`); doc.moveDown();
+    doc.fontSize(22).fillColor('#1d6f55').text('PawSync Appointment Value Report'); doc.moveDown(0.5).fontSize(11).fillColor('#333').text(`Provider: ${providerName}`); doc.text(`Generated: ${new Date().toLocaleString()}`); doc.text('Estimated values only - PawSync does not process payments.'); doc.moveDown();
     rows.forEach(row => doc.fontSize(10).text(`${row.dateTime.toLocaleDateString()}  ${row.serviceType.padEnd(18)}  Rs. ${(row.price || 0).toLocaleString()}`));
-    doc.moveDown().fontSize(14).fillColor('#1d6f55').text(`Total: Rs. ${rows.reduce((sum, row) => sum + (row.price || 0), 0).toLocaleString()}`); doc.end();
+    doc.moveDown().fontSize(14).fillColor('#1d6f55').text(`Estimated total: Rs. ${rows.reduce((sum, row) => sum + (row.price || 0), 0).toLocaleString()}`); doc.end();
   });
 }
 
@@ -32,6 +32,6 @@ export async function GET(req: NextRequest) {
     const dateFilter: Record<string, Date> = {}; if (from) dateFilter.$gte = new Date(`${from}T00:00:00`); if (to) dateFilter.$lte = new Date(`${to}T23:59:59`);
     const appointments = await Appointment.find({ providerId: user.userId, status: 'completed', ...(Object.keys(dateFilter).length ? { dateTime: dateFilter } : {}) }).sort({ dateTime: 1 });
     const pdf = await renderReport(appointments, user.email || 'Provider');
-    return new NextResponse(new Uint8Array(pdf), { headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': 'attachment; filename="pawsync-financial-report.pdf"', 'Cache-Control': 'private, no-store' } });
-  } catch (error) { console.error('Provider financial report error:', error); return NextResponse.json({ error: 'Unable to generate report' }, { status: 500 }); }
+    return new NextResponse(new Uint8Array(pdf), { headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': 'attachment; filename="pawsync-appointment-value-report.pdf"', 'Cache-Control': 'private, no-store' } });
+  } catch (error) { console.error('Provider appointment value report error:', error); return NextResponse.json({ error: 'Unable to generate report' }, { status: 500 }); }
 }

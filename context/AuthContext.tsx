@@ -63,7 +63,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const lastActivity = Number(sessionStorage.getItem(ACTIVITY_KEY) || 0);
       const isInactive = lastActivity > 0 && Date.now() - lastActivity > INACTIVITY_LIMIT_MS;
       if (savedToken && savedUser && !isInactive) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
         setToken(savedToken);
         setUser(JSON.parse(savedUser) as User);
       } else if (isInactive) {

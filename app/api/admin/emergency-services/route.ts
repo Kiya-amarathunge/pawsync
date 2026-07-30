@@ -13,8 +13,6 @@ export const emergencyServiceSchema = z.object({
   name: z.string().trim().min(2).max(160),
   address: z.string().trim().min(5).max(500),
   phone: z.string().trim().min(7).max(30),
-  lat: z.coerce.number().min(-90).max(90),
-  lng: z.coerce.number().min(-180).max(180),
   is24Hours: z.boolean().default(false),
   specializations: z.array(z.string().trim().min(1).max(80)).max(20).default([]),
 });
@@ -39,10 +37,12 @@ export async function POST(req: NextRequest) {
     if (!hasRole(admin, ['admin'])) return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
     const parsed = emergencyServiceSchema.safeParse(await req.json());
     if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
-    const { lat, lng, ...details } = parsed.data;
     const service = await EmergencyContact.create({
-      ...details,
-      location: { lat, lng },
+      ...parsed.data,
+      // Older development-server model instances required this field. The
+      // emergency directory no longer uses coordinates, but this placeholder
+      // keeps creation compatible until the server is restarted.
+      location: { lat: 0, lng: 0 },
       isVerified: false,
       isAvailable: true,
       availabilityUpdatedAt: new Date(),

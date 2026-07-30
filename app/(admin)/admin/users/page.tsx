@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import DashboardLayout from '@/components/layout/DashboardLayout';
@@ -12,7 +12,7 @@ export default function AdminUsersPage() {
   const [roleFilter, setRoleFilter] = useState('');
   const [total, setTotal] = useState(0);
 
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     if (!token) return;
     const params = roleFilter ? `?role=${roleFilter}` : '';
     const res = await fetch(`/api/admin/users${params}`, { headers: { Authorization: `Bearer ${token}` } });
@@ -20,9 +20,9 @@ export default function AdminUsersPage() {
     setUsers(data.users || []);
     setTotal(data.total || 0);
     setIsLoading(false);
-  };
+  }, [roleFilter, token]);
 
-  useEffect(() => { fetchUsers(); }, [token, roleFilter]);
+  useEffect(() => { void fetchUsers(); }, [fetchUsers]);
 
   const handleAction = async (userId: string, action: string) => {
     try {
@@ -33,7 +33,7 @@ export default function AdminUsersPage() {
       });
       if (!res.ok) throw new Error('Action failed');
       showToast(`User ${action}ed successfully`, 'success');
-      fetchUsers();
+      void fetchUsers();
     } catch (err: any) {
       showToast(err.message, 'error');
     }
@@ -49,7 +49,7 @@ export default function AdminUsersPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       showToast(data.message, 'success');
-      fetchUsers();
+      void fetchUsers();
     } catch (err: any) {
       showToast(err.message, 'error');
     }

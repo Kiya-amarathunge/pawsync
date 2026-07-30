@@ -9,6 +9,7 @@ export default function DashboardPage() {
   const [pets, setPets] = useState<any[]>([]);
   const [appointments, setAppointments] = useState<any[]>([]);
   const [notifications, setNotifications] = useState<any[]>([]);
+  const [healthRecordCount, setHealthRecordCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -18,10 +19,12 @@ export default function DashboardPage() {
       fetch('/api/pets', { headers }).then(r => r.json()),
       fetch('/api/appointments?status=confirmed', { headers }).then(r => r.json()),
       fetch('/api/notifications', { headers }).then(r => r.json()),
-    ]).then(([petsData, apptData, notifData]) => {
+      fetch('/api/health-records', { headers }).then(r => r.json()),
+    ]).then(([petsData, apptData, notifData, healthData]) => {
       setPets(petsData.pets || []);
       setAppointments(apptData.appointments || []);
       setNotifications(notifData.notifications || []);
+      setHealthRecordCount(healthData.total || 0);
       setIsLoading(false);
     }).catch(() => setIsLoading(false));
   }, [token]);
@@ -50,7 +53,7 @@ export default function DashboardPage() {
             { label: 'My Pets', value: pets.length, icon: '🐾', color: 'var(--primary)', bg: 'var(--primary-light)' },
             { label: 'Upcoming', value: appointments.length, icon: '📅', color: 'var(--blue)', bg: 'var(--blue-light)' },
             { label: 'Notifications', value: notifications.filter((n: any) => !n.isRead).length, icon: '🔔', color: 'var(--accent)', bg: 'var(--accent-light)' },
-            { label: 'Health Records', value: '—', icon: '📋', color: '#7c3aed', bg: '#f3f0ff' },
+            { label: 'Health Records', value: healthRecordCount, icon: '📋', color: '#7c3aed', bg: '#f3f0ff' },
           ].map(stat => (
             <div key={stat.label} className="stat-card" style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
               <div style={{ width: 52, height: 52, borderRadius: 'var(--radius-md)', background: stat.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>

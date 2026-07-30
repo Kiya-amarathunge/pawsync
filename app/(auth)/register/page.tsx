@@ -15,6 +15,8 @@ export default function RegisterPage() {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
+  const [credentialFile, setCredentialFile] = useState<File | null>(null);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [form, setForm] = useState({
     role: '', name: '', email: '', password: '', phoneNumber: '',
     licenseNumber: '', specialization: '', businessRegistrationNumber: '',
@@ -26,10 +28,15 @@ export default function RegisterPage() {
   const handleSubmit = async () => {
     setIsLoading(true);
     try {
+      const body = new FormData();
+      Object.entries(form).forEach(([key, value]) => {
+        body.append(key, Array.isArray(value) ? JSON.stringify(value) : String(value));
+      });
+      if (credentialFile) body.append('verificationDocument', credentialFile);
+      body.append('acceptedTerms', String(acceptedTerms));
       const res = await fetch('/api/auth/register', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -45,8 +52,8 @@ export default function RegisterPage() {
   const canProceedStep2 = form.name && form.email && form.password && form.phoneNumber;
   const canProceedStep3 =
     form.role === 'pet_owner' ? true :
-    form.role === 'veterinarian' ? !!(form.licenseNumber && form.businessRegistrationNumber) :
-    !!(form.businessName && form.businessRegistrationNumber);
+    form.role === 'veterinarian' ? !!(form.licenseNumber && form.businessRegistrationNumber && credentialFile) :
+    !!(form.businessName && form.businessRegistrationNumber && form.serviceType.length && credentialFile);
 
   return (
     <div style={{
@@ -119,6 +126,7 @@ export default function RegisterPage() {
               <button className="btn btn-primary btn-full" style={{ marginTop: 24 }} onClick={() => form.role && setStep(2)} disabled={!form.role}>
                 Continue →
               </button>
+
             </div>
           )}
 
@@ -142,6 +150,8 @@ export default function RegisterPage() {
                   <label className="input-label">Email Address *</label>
                   <input className="input" type="email" placeholder="you@example.com" value={form.email} onChange={e => update('email', e.target.value)} />
                 </div>
+
+
                 <div className="input-group">
                   <label className="input-label">Password *</label>
                   <input className="input" type="password" placeholder="Min 8 characters with letters and numbers" value={form.password} onChange={e => update('password', e.target.value)} />
@@ -233,6 +243,22 @@ export default function RegisterPage() {
                 </div>
               )}
 
+              {form.role !== 'pet_owner' && (
+                <div className="input-group" style={{ marginTop: 16 }}>
+                  <label className="input-label">Verification Document *</label>
+                  <input
+                    className="input"
+                    type="file"
+                    accept="application/pdf,image/jpeg,image/png"
+                    onChange={event => setCredentialFile(event.target.files?.[0] || null)}
+                    required
+                  />
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                    Upload a PDF, JPG or PNG copy of your professional licence or business registration (maximum 10MB).
+                  </p>
+                </div>
+              )}
+
               {form.role === 'pet_owner' && (
                 <div style={{ padding: '20px', background: 'var(--primary-light)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(29,158,117,0.2)' }}>
                   <p style={{ fontWeight: 600, marginBottom: 8, fontSize: 15 }}>📋 Account Summary</p>
@@ -249,10 +275,11 @@ export default function RegisterPage() {
 
               <div style={{ display: 'flex', gap: 12, marginTop: 24 }}>
                 <button className="btn btn-outline" onClick={() => setStep(2)}>← Back</button>
-                <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleSubmit} disabled={isLoading || !canProceedStep3}>
+                <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleSubmit} disabled={isLoading || !canProceedStep3 || !acceptedTerms}>
                   {isLoading ? <><div className="spinner" />Creating account...</> : 'Create Account 🐾'}
                 </button>
               </div>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 9, marginTop: 14, color: 'var(--text-secondary)', fontSize: 12 }}><input type="checkbox" checked={acceptedTerms} onChange={event => setAcceptedTerms(event.target.checked)} style={{ marginTop: 2 }} /><span>I agree to the <Link href="/terms" target="_blank">Terms of Use</Link> and acknowledge the <Link href="/privacy" target="_blank">Privacy Notice</Link>.</span></label>
             </div>
           )}
         </div>

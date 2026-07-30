@@ -5,6 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Flag } from 'lucide-react';
+import ActionDialog from '@/components/ui/ActionDialog';
 
 export default function ProviderReviewsPage() {
   const { token, user } = useAuth();
@@ -13,6 +14,7 @@ export default function ProviderReviewsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [respondingTo, setRespondingTo] = useState<string | null>(null);
   const [response, setResponse] = useState('');
+  const [flaggedReviewId, setFlaggedReviewId] = useState('');
 
   useEffect(() => {
     if (!token || !user) return;
@@ -43,17 +45,18 @@ export default function ProviderReviewsPage() {
     }
   };
 
-  const flagReview = async (reviewId: string) => {
-    const reason = prompt('Why should this review be checked by an administrator?');
-    if (!reason?.trim()) return;
-    const res = await fetch(`/api/reviews/${reviewId}/flag`, {
+  const flagReview = (reviewId: string) => setFlaggedReviewId(reviewId);
+
+  const submitFlag = async (reason: string) => {
+    if (!flaggedReviewId) return;
+    const res = await fetch(`/api/reviews/${flaggedReviewId}/flag`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ reason: reason.trim() }),
+      body: JSON.stringify({ reason }),
     });
     const data = await res.json();
     showToast(res.ok ? data.message : data.error, res.ok ? 'success' : 'error');
-    if (res.ok) setReviews(current => current.filter(review => review._id !== reviewId));
+    if (res.ok) { setReviews(current => current.filter(review => review._id !== flaggedReviewId)); setFlaggedReviewId(''); }
   };
 
   const Stars = ({ rating }: { rating: number }) => (
@@ -162,6 +165,7 @@ export default function ProviderReviewsPage() {
           </div>
         )}
       </div>
+      <ActionDialog open={Boolean(flaggedReviewId)} title="Report this review" description="Explain why this review should be checked by an administrator." confirmLabel="Submit report" reasonLabel="Reason for report" reasonPlaceholder="Describe the policy or accuracy concern" minLength={10} onCancel={() => setFlaggedReviewId('')} onConfirm={submitFlag} />
     </DashboardLayout>
   );
 }

@@ -45,6 +45,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <Sidebar open={navigationOpen} onClose={() => setNavigationOpen(false)} />
     <header className="mobile-header"><button onClick={() => setNavigationOpen(true)} aria-label="Open navigation"><Menu size={20} /></button><span><PawPrint size={18} /> PawSync</span></header>
     <main className="main-content"><div className="content-container">{children}</div></main>
-    <Link href={user.role === 'admin' ? '/admin/emergency-services' : '/emergency'} className="emergency-action" aria-label={user.role === 'admin' ? 'Manage emergency services' : 'Emergency services'} title={user.role === 'admin' ? 'Manage emergency services' : 'Emergency services'}><Siren size={20} /></Link>
+    {(user.role === 'admin' || user.role === 'pet_owner') && <Link href={user.role === 'admin' ? '/admin/emergency-services' : '/emergency'} className="emergency-action" aria-label={user.role === 'admin' ? 'Manage emergency services' : 'Emergency services'} title={user.role === 'admin' ? 'Manage emergency services' : 'Emergency services'}><Siren size={20} /></Link>}
   </div>;
 }

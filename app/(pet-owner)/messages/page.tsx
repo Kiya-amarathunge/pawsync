@@ -59,17 +59,26 @@ function MessagesContent() {
 
   useEffect(() => {
     if (!token || !user) return;
-    void fetch('/api/socket', { headers: { Authorization: `Bearer ${token}` } });
-    const socket = io(process.env.NEXT_PUBLIC_SIGNALING_URL || 'http://localhost:3001', { auth: { token }, reconnection: true });
-    socketRef.current = socket;
-    socket.on('message:receive', message => {
-      if (message.senderId === selectedId) setMessages(current => current.some(item => item._id === message._id) ? current : [...current, message]);
-      void loadConversations();
-    });
-    socket.on('message:read', data => { if (data.readerId === selectedId) setMessages(current => current.map(message => message.senderId === user.id ? { ...message, isRead: true, readAt: new Date().toISOString() } : message)); });
-    socket.on('user:typing', data => { if (data.senderId === selectedId) setTyping(Boolean(data.isTyping)); });
-    socket.on('presence:update', data => { if (data.userId === selectedId) setOnline(Boolean(data.online)); });
-    return () => { socket.disconnect(); socketRef.current = null; };
+    let disposed = false;
+    const initializeSocket = async () => {
+      const response = await fetch('/api/socket', { headers: { Authorization: `Bearer ${token}` } });
+      if (!response.ok || disposed) return;
+      const socket = io(process.env.NEXT_PUBLIC_SIGNALING_URL || 'http://localhost:3001', { auth: { token }, reconnection: true });
+      socketRef.current = socket;
+      socket.on('message:receive', message => {
+        if (message.senderId === selectedId) setMessages(current => current.some(item => item._id === message._id) ? current : [...current, message]);
+        void loadConversations();
+      });
+      socket.on('message:read', data => { if (data.readerId === selectedId) setMessages(current => current.map(message => message.senderId === user.id ? { ...message, isRead: true, readAt: new Date().toISOString() } : message)); });
+      socket.on('user:typing', data => { if (data.senderId === selectedId) setTyping(Boolean(data.isTyping)); });
+      socket.on('presence:update', data => { if (data.userId === selectedId) setOnline(Boolean(data.online)); });
+    };
+    void initializeSocket();
+    return () => {
+      disposed = true;
+      socketRef.current?.disconnect();
+      socketRef.current = null;
+    };
   }, [loadConversations, selectedId, token, user]);
 
   const sendMessage = async (event: FormEvent) => {
