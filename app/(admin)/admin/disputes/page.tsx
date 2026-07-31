@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
+import Pagination from '@/components/ui/Pagination';
 
 interface Dispute {
   _id: string;
@@ -37,19 +38,24 @@ export default function AdminDisputesPage() {
   const [refundAmount, setRefundAmount] = useState('');
   const [loading, setLoading] = useState(true);
   const [resolving, setResolving] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(1);
+  const [total, setTotal] = useState(0);
 
   const load = useCallback(async () => {
     if (!token) return;
     setLoading(true);
-    const response = await fetch(`/api/admin/disputes?status=${status}`, {
+    const response = await fetch(`/api/admin/disputes?status=${status}&page=${page}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     const data = await response.json();
     if (!response.ok) showToast(data.error || 'Unable to load disputes', 'error');
     setDisputes(response.ok ? data.disputes || [] : []);
+    setTotal(response.ok ? data.total || 0 : 0);
+    setPages(response.ok ? Math.max(1, data.pages || 1) : 1);
     setSelected(current => current && data.disputes?.some((item: Dispute) => item._id === current._id) ? current : null);
     setLoading(false);
-  }, [showToast, status, token]);
+  }, [page, showToast, status, token]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -94,7 +100,7 @@ export default function AdminDisputesPage() {
   return <DashboardLayout>
     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, marginBottom: 20, alignItems: 'flex-start' }}>
       <div><h1 className="page-title">Disputes</h1><p className="page-subtitle">Review and resolve appointment-related complaints</p></div>
-      <select className="input" style={{ maxWidth: 170 }} value={status} onChange={event => setStatus(event.target.value)}><option value="open">Open</option><option value="under_review">Under review</option><option value="resolved">Resolved</option><option value="dismissed">Dismissed</option><option value="all">All cases</option></select>
+      <select className="input" style={{ maxWidth: 170 }} value={status} onChange={event => { setStatus(event.target.value); setPage(1); }}><option value="open">Open</option><option value="under_review">Under review</option><option value="resolved">Resolved</option><option value="dismissed">Dismissed</option><option value="all">All cases</option></select>
     </div>
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 0.9fr) minmax(340px, 1.1fr)', gap: 18, alignItems: 'start' }}>
       <div style={{ display: 'grid', gap: 10 }}>
@@ -104,6 +110,7 @@ export default function AdminDisputesPage() {
           <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3 }}>{dispute.openedBy?.name || 'User'} · {new Date(dispute.createdAt).toLocaleDateString()}</p>
         </button>)}
         {!loading && disputes.length === 0 && <div className="empty-state"><p>No {status === 'all' ? '' : status.replace('_', ' ')} disputes.</p></div>}
+        {!loading && total > 0 && <div className="card" style={{ overflow: 'hidden' }}><Pagination page={page} pages={pages} total={total} itemLabel="disputes" onPageChange={setPage} /></div>}
       </div>
 
       {selected ? <section className="card" style={{ padding: 22 }}>

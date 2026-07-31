@@ -188,6 +188,9 @@ async function run() {
 
   const messageResult = await request('Owner sends provider message', '/api/messages', { method: 'POST', token: ownerToken, expected: [201], body: { receiverId: String(ids.provider), content: 'Hello, this is an API integration test message.' } });
   ids.message = messageResult.data.data?._id;
+  await request('Owner lists approved message recipients', '/api/messages/recipients', { token: ownerToken });
+  await request('Owner searches message recipients by name', '/api/messages/recipients?q=API%20Test', { token: ownerToken });
+  await request('Provider cannot browse provider recipients', '/api/messages/recipients', { token: providerToken, expected: [403] });
   await request('Provider lists conversations', '/api/messages', { token: providerToken });
   await request('Provider reads conversation', `/api/messages/${ids.owner}`, { token: providerToken });
   await request('Owner-to-owner messaging is rejected', '/api/messages', { method: 'POST', token: ownerToken, expected: [404], body: { receiverId: String(ids.owner), content: 'This should not be accepted.' } });
@@ -197,6 +200,7 @@ async function run() {
   await request('Reply to forum post', `/api/forum/posts/${ids.post}/replies`, { method: 'POST', token: ownerToken, expected: [201], body: { content: 'Bring vaccination information and mention any handling concerns.' } });
   await request('Follow forum post', `/api/forum/posts/${ids.post}/follow`, { method: 'PATCH', token: ownerToken });
   await request('List forum posts', '/api/forum/posts?sort=recent', { token: ownerToken });
+  await request('Search forum topics by keyword', '/api/forum/posts?sort=recent&q=grooming', { token: ownerToken });
   await request('Forum participation metrics', '/api/forum/participation', { token: ownerToken });
 
   await request('List notifications', '/api/notifications', { token: ownerToken });

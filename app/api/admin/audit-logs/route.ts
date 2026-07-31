@@ -32,7 +32,8 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = req.nextUrl;
     const actionType = searchParams.get('actionType');
-    const page = parseInt(searchParams.get('page') || '1');
+    const requestedPage = Number.parseInt(searchParams.get('page') || '1', 10);
+    const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
     const limit = 20;
 
     const filter: any = {};

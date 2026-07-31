@@ -14,7 +14,6 @@ import connectDB from '@/lib/db';
 import User from '@/models/User';
 import Notification from '@/models/Notification';
 import AuditLog from '@/models/AuditLog';
-import { sendSMS } from '@/lib/twilio';
 import { verifyToken } from '@/lib/jwt';
 
 function getAdminFromRequest(req: NextRequest) {
@@ -26,14 +25,14 @@ function getAdminFromRequest(req: NextRequest) {
   return decoded;
 }
 
-// POST /api/admin/alerts — send seasonal disease outbreak alert
+// POST /api/admin/alerts - send a seasonal disease outbreak alert
 export async function POST(req: NextRequest) {
   try {
     await connectDB();
     const admin = getAdminFromRequest(req);
     if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { title, message, affectedArea, sendSMSAlert } = await req.json();
+    const { title, message, affectedArea } = await req.json();
 
     if (!title || !message) {
       return NextResponse.json({ error: 'Title and message are required' }, { status: 400 });
@@ -43,13 +42,11 @@ export async function POST(req: NextRequest) {
     const users = await User.find({
       role: 'pet_owner',
       isActive: true,
-    }).select('_id phoneNumber name');
+    }).select('_id');
 
-    const fullMessage = `🚨 Health Alert${affectedArea ? ` for ${affectedArea}` : ''}: ${title} — ${message}`;
+    const fullMessage = `Health Alert${affectedArea ? ` for ${affectedArea}` : ''}: ${title} - ${message}`;
 
     let notificationsSent = 0;
-    let smsSent = 0;
-
     for (const user of users) {
       // Create in-app notification
       await Notification.create({
@@ -60,11 +57,6 @@ export async function POST(req: NextRequest) {
       });
       notificationsSent++;
 
-      // Send SMS for critical alerts
-      if (sendSMSAlert && user.phoneNumber) {
-        const sent = await sendSMS(user.phoneNumber, `PawSync Alert: ${fullMessage}`);
-        if (sent) smsSent++;
-      }
     }
 
     // Log admin action
@@ -73,13 +65,12 @@ export async function POST(req: NextRequest) {
       actionType: 'OUTBREAK_ALERT_SENT',
       affectedEntity: 'User',
       entityId: admin.userId,
-      justification: `Seasonal alert sent: ${title} — affected area: ${affectedArea || 'all'}`,
+      justification: `Seasonal alert sent: ${title} - affected area: ${affectedArea || 'all'}`,
     });
 
     return NextResponse.json({
       message: 'Alert sent successfully',
       notificationsSent,
-      smsSent,
     });
   } catch (error) {
     console.error('Send alert error:', error);
@@ -87,7 +78,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// GET /api/admin/alerts — list recent alerts from audit log
+// GET /api/admin/alerts - list recent alerts from the audit log
 export async function GET(req: NextRequest) {
   try {
     await connectDB();

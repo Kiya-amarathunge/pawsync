@@ -38,6 +38,7 @@ export default function NotificationsPage() {
   const markRead = async (notification: AppNotification) => {
     if (!notification.isRead) await fetch(`/api/notifications/${notification._id}/read`, { method: 'PATCH', headers });
     setNotifications(current => current.map(item => item._id === notification._id ? { ...item, isRead: true } : item));
+    window.dispatchEvent(new Event('pawsync:counts-changed'));
     if (notification.actionUrl) router.push(notification.actionUrl);
   };
 
@@ -45,6 +46,7 @@ export default function NotificationsPage() {
     const unreadNotifications = notifications.filter(item => !item.isRead);
     await Promise.all(unreadNotifications.map(notification => fetch(`/api/notifications/${notification._id}/read`, { method: 'PATCH', headers })));
     setNotifications(current => current.map(item => ({ ...item, isRead: true })));
+    window.dispatchEvent(new Event('pawsync:counts-changed'));
   };
 
   const savePreferences = async () => {
