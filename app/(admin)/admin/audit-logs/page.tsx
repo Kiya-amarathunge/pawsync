@@ -2,20 +2,31 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import DashboardLayout from '@/components/layout/DashboardLayout';
+import Pagination from '@/components/ui/Pagination';
 
 export default function AuditLogsPage() {
   const { token } = useAuth();
   const [logs, setLogs] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [actionFilter, setActionFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(1);
+  const [total, setTotal] = useState(0);
 
   useEffect(() => {
     if (!token) return;
-    const params = actionFilter ? `?actionType=${actionFilter}` : '';
-    fetch(`/api/admin/audit-logs${params}`, { headers: { Authorization: `Bearer ${token}` } })
+    setIsLoading(true);
+    const params = new URLSearchParams({ page: String(page) });
+    if (actionFilter) params.set('actionType', actionFilter);
+    fetch(`/api/admin/audit-logs?${params}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
-      .then(data => { setLogs(data.logs || []); setIsLoading(false); });
-  }, [token, actionFilter]);
+      .then(data => {
+        setLogs(data.logs || []);
+        setTotal(data.total || 0);
+        setPages(Math.max(1, data.pages || 1));
+        setIsLoading(false);
+      });
+  }, [token, actionFilter, page]);
 
   const actionColors: Record<string, string> = {
     USER_SUSPENDED: 'badge-red', USER_ACTIVATED: 'badge-green',
@@ -33,7 +44,7 @@ export default function AuditLogsPage() {
             <h1 className="page-title">Audit Logs</h1>
             <p className="page-subtitle">Complete history of all admin actions</p>
           </div>
-          <select className="input" style={{ maxWidth: 220 }} value={actionFilter} onChange={e => setActionFilter(e.target.value)}>
+          <select className="input" style={{ maxWidth: 220 }} value={actionFilter} onChange={e => { setActionFilter(e.target.value); setPage(1); }}>
             <option value="">All Actions</option>
             <option value="USER_SUSPENDED">User Suspended</option>
             <option value="PROVIDER_APPROVED">Provider Approved</option>
@@ -74,6 +85,7 @@ export default function AuditLogsPage() {
               )}
             </tbody>
           </table>
+          {!isLoading && <Pagination page={page} pages={pages} total={total} itemLabel="audit logs" onPageChange={setPage} />}
         </div>
       </div>
     </DashboardLayout>

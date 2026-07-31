@@ -1,8 +1,9 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import DashboardLayout from '@/components/layout/DashboardLayout';
+import Pagination from '@/components/ui/Pagination';
 
 export default function AdminUsersPage() {
   const { token } = useAuth();
@@ -11,18 +12,23 @@ export default function AdminUsersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [roleFilter, setRoleFilter] = useState('');
   const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(1);
 
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     if (!token) return;
-    const params = roleFilter ? `?role=${roleFilter}` : '';
-    const res = await fetch(`/api/admin/users${params}`, { headers: { Authorization: `Bearer ${token}` } });
+    setIsLoading(true);
+    const params = new URLSearchParams({ page: String(page) });
+    if (roleFilter) params.set('role', roleFilter);
+    const res = await fetch(`/api/admin/users?${params}`, { headers: { Authorization: `Bearer ${token}` } });
     const data = await res.json();
     setUsers(data.users || []);
     setTotal(data.total || 0);
+    setPages(Math.max(1, data.pages || 1));
     setIsLoading(false);
-  };
+  }, [page, roleFilter, token]);
 
-  useEffect(() => { fetchUsers(); }, [token, roleFilter]);
+  useEffect(() => { void fetchUsers(); }, [fetchUsers]);
 
   const handleAction = async (userId: string, action: string) => {
     try {
@@ -33,7 +39,7 @@ export default function AdminUsersPage() {
       });
       if (!res.ok) throw new Error('Action failed');
       showToast(`User ${action}ed successfully`, 'success');
-      fetchUsers();
+      void fetchUsers();
     } catch (err: any) {
       showToast(err.message, 'error');
     }
@@ -49,7 +55,7 @@ export default function AdminUsersPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       showToast(data.message, 'success');
-      fetchUsers();
+      void fetchUsers();
     } catch (err: any) {
       showToast(err.message, 'error');
     }
@@ -68,7 +74,7 @@ export default function AdminUsersPage() {
             <h1 className="page-title">User Management</h1>
             <p className="page-subtitle">{total} total users on the platform</p>
           </div>
-          <select className="input" style={{ maxWidth: 180 }} value={roleFilter} onChange={e => setRoleFilter(e.target.value)}>
+          <select className="input" style={{ maxWidth: 180 }} value={roleFilter} onChange={e => { setRoleFilter(e.target.value); setPage(1); }}>
             <option value="">All Roles</option>
             <option value="pet_owner">Pet Owners</option>
             <option value="veterinarian">Veterinarians</option>
@@ -128,6 +134,7 @@ export default function AdminUsersPage() {
               )}
             </tbody>
           </table>
+          {!isLoading && <Pagination page={page} pages={pages} total={total} itemLabel="users" onPageChange={setPage} />}
         </div>
       </div>
     </DashboardLayout>

@@ -15,9 +15,17 @@ import User from '@/models/User';
 import { signAccessToken } from '@/lib/jwt';
 import { sendPasswordResetEmail } from '@/lib/mailer';
 import { forgotPasswordSchema } from '@/lib/validations/auth';
+import { consumeRateLimit, requestClientKey } from '@/lib/rate-limit';
 
 export async function POST(req: NextRequest) {
   try {
+    const rateLimit = consumeRateLimit(`forgot-password:${requestClientKey(req)}`, 5, 30 * 60 * 1000);
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: 'Too many password reset requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) } },
+      );
+    }
     await connectDB();
 
     const body = await req.json();

@@ -11,6 +11,7 @@ export default function LoginPage() {
   const { showToast } = useToast();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -50,10 +51,13 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit} className="auth-form">
           <label className="input-group"><span className="input-label">Email address</span><input className="input" type="email" autoComplete="email" placeholder="you@example.com" value={email} onChange={event => setEmail(event.target.value)} required /></label>
           <label className="input-group"><span className="input-label">Password</span><span className="password-input"><input className="input" type={showPassword ? 'text' : 'password'} autoComplete="current-password" placeholder="Enter your password" value={password} onChange={event => setPassword(event.target.value)} required /><button type="button" onClick={() => setShowPassword(value => !value)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label>
-          <div className="auth-form-meta"><span /><Link href="/reset-password">Forgot password?</Link></div>
+          <div className="auth-form-meta"><Link href="/support">Need help?</Link><Link href="/reset-password">Forgot password?</Link></div>
           <button type="submit" className="btn btn-primary btn-lg btn-full" disabled={isLoading}>{isLoading ? <><span className="spinner" /> Signing in</> : 'Sign in'}</button>
+
+
         </form>
         <p className="auth-switch">New to PawSync? <Link href="/register">Create an account</Link></p>
+        <p style={{ marginTop: 14, textAlign: 'center', color: 'var(--text-muted)', fontSize: 11 }}><Link href="/privacy" style={{ color: 'inherit' }}>Privacy</Link> · <Link href="/terms" style={{ color: 'inherit' }}>Terms</Link></p>
       </div>
     </section>
   </main>;

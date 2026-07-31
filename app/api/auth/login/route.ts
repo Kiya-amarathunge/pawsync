@@ -14,9 +14,17 @@ import connectDB from '@/lib/db';
 import User from '@/models/User';
 import { signAccessToken, signRefreshToken } from '@/lib/jwt';
 import { loginSchema } from '@/lib/validations/auth';
+import { consumeRateLimit, requestClientKey } from '@/lib/rate-limit';
 
 export async function POST(req: NextRequest) {
   try {
+    const rateLimit = consumeRateLimit(`login:${requestClientKey(req)}`, 10, 15 * 60 * 1000);
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: 'Too many login attempts. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) } },
+      );
+    }
     await connectDB();
 
     const body = await req.json();
@@ -47,16 +55,23 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!user.isActive) {
+    if (user.verificationStatus === 'rejected') {
       return NextResponse.json(
-        { error: 'Your account is pending admin approval. You will be notified by email.' },
+        { error: 'Your provider application was not approved. Visit /support if you need assistance.' },
         { status: 403 }
       );
     }
 
     if (user.isSuspended) {
       return NextResponse.json(
-        { error: 'Your account has been suspended. Please contact support.' },
+        { error: 'Your account has been suspended. Visit /support to contact PawSync support.' },
+        { status: 403 }
+      );
+    }
+
+    if (!user.isActive) {
+      return NextResponse.json(
+        { error: 'Your account is pending admin approval. You will be notified by email.' },
         { status: 403 }
       );
     }

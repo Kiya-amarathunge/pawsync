@@ -35,6 +35,8 @@ export async function GET(req: NextRequest) {
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
     const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     const [
@@ -50,10 +52,15 @@ export async function GET(req: NextRequest) {
       User.countDocuments(),
       User.countDocuments({ registrationDate: { $gte: today } }),
       User.countDocuments({ registrationDate: { $gte: last24h } }),
-      User.countDocuments({ isActive: false, role: { $in: ['veterinarian', 'service_provider'] } }),
+      User.countDocuments({
+        isActive: false,
+        isSuspended: false,
+        role: { $in: ['veterinarian', 'service_provider'] },
+        verificationStatus: { $in: ['pending', 'more_info_requested'] },
+      }),
       ForumPost.countDocuments({ isFlagged: true, isModerated: false }),
       Review.countDocuments({ isFlagged: true, removedAt: { $exists: false } }),
-      Appointment.countDocuments({ dateTime: { $gte: today } }),
+      Appointment.countDocuments({ dateTime: { $gte: today, $lt: tomorrow } }),
       Appointment.countDocuments({ status: 'pending' }),
     ]);
 

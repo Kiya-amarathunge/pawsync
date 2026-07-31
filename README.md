@@ -27,9 +27,9 @@ The system was developed as an undergraduate software engineering project based 
 ## Major Features
 
 - Secure registration, password reset, JWT authentication, role-based authorization, and inactive-session expiry
-- Pet profiles with weight, diet, vaccinations, medications, documents, charts, and controlled veterinarian sharing
+- Pet profiles with weight, diet, vaccinations, medications, documents, and charts
 - AES-256-GCM encrypted health records with search, version history, access restrictions, and PDF downloads
-- Provider profiles with credentials, services, pricing, working hours, blocked dates, location, service radius, and favourites
+- Provider applications with required credential evidence, administrator approval, and public profiles containing services, pricing, availability, location, and favourites
 - Provider discovery with filtering, distance calculation, reviews, directions, availability, and direct booking
 - Appointment booking with availability validation, overlap detection, status transitions, rescheduling, cancellation, reminders, and history
 - Verified appointment reviews with ratings, photographs, provider responses, flagging, and moderation
@@ -37,7 +37,7 @@ The system was developed as an undergraduate software engineering project based 
 - In-app and web-push notifications with user preferences, reminder categories, action links, and duplicate prevention
 - Community forum with categories, replies, votes, follows, images, verified-vet responses, reporting, and participation metrics
 - Emergency service discovery, distance ordering, directions, emergency contact logging, record-sharing consent, and urgent boarding
-- Provider dashboards with scheduling, client management, service analytics, earnings, and downloadable financial reports
+- Provider dashboards with scheduling, client management, service analytics, estimated earnings, and downloadable financial reports
 - Administration tools for verification, moderation, disputes/refunds, announcements, audit logs, security alerts, and role-restricted operations
 - Responsive, low-motion interface for desktop and mobile use
 
@@ -174,10 +174,10 @@ npm run build
 
 Current verification baseline:
 
-- 5 unit tests passing
-- 45 live API integration checks passing
+- 8 unit tests passing
+- 50 live API integration checks passing
 - TypeScript compilation passing
-- Production build passing across 82 application routes
+- Production build passing across 86 application routes
 
 ## Security Highlights
 
@@ -194,7 +194,9 @@ Current verification baseline:
 
 Email, SMS, and web-push delivery require valid SMTP, Twilio, and VAPID credentials. Twilio trial accounts may send messages only to verified recipients. Browser push requires notification permission and HTTPS in production; `localhost` is supported for development.
 
-The current realtime implementation requires a persistent Node.js environment for Socket.IO. When deploying to a serverless platform, host the signalling service separately or use a platform that supports persistent Node processes.
+The current realtime implementation requires a persistent Node.js environment for Socket.IO. When deploying to a serverless platform, host the signalling service separately or use a platform that supports persistent Node processes. The `storage/` and `public/uploads/` directories must be mounted on persistent storage; object storage such as S3 or Cloudinary is recommended for horizontally scaled production deployments.
+
+Financial totals are calculated from completed appointment prices. Dispute refunds are tracked as administrative approval records; PawSync does not process card or bank payments.
 
 ## Author
 

@@ -38,16 +38,21 @@ export async function GET(req: NextRequest) {
     if (validStatuses.includes(status as typeof validStatuses[number])) {
       filter.status = status as typeof validStatuses[number];
     }
+    const requestedPage = Number.parseInt(req.nextUrl.searchParams.get('page') || '1', 10);
+    const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+    const limit = 20;
     const disputes = await Dispute.find(filter)
       .sort({ createdAt: -1 })
-      .limit(100)
+      .skip((page - 1) * limit)
+      .limit(limit)
       .populate('appointmentId', 'serviceType dateTime status price petId')
       .populate('openedBy', 'name email role')
       .populate('ownerId', 'name email')
       .populate('providerId', 'name email')
       .populate('resolvedBy', 'name');
+    const total = await Dispute.countDocuments(filter);
 
-    return NextResponse.json({ disputes });
+    return NextResponse.json({ disputes, total, page, pages: Math.ceil(total / limit) });
   } catch (error) {
     console.error('Get disputes error:', error);
     return NextResponse.json({ error: 'Something went wrong' }, { status: 500 });

@@ -1,17 +1,32 @@
 'use client';
+
 import { useState } from 'react';
+import { Megaphone, TriangleAlert } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 
+interface AnnouncementForm {
+  title: string;
+  message: string;
+  targetRoles: string[];
+}
+
+interface AlertForm {
+  title: string;
+  message: string;
+  affectedArea: string;
+}
+
+const emptyAnnouncement: AnnouncementForm = { title: '', message: '', targetRoles: [] };
+const emptyAlert: AlertForm = { title: '', message: '', affectedArea: '' };
+
 export default function AnnouncementsPage() {
   const { token } = useAuth();
   const { showToast } = useToast();
-  const [form, setForm] = useState({
-    title: '', message: '', affectedArea: '',
-    targetRoles: [] as string[], sendSMSAlert: false, isAlert: false,
-  });
-  const [isSending, setIsSending] = useState(false);
+  const [announcement, setAnnouncement] = useState<AnnouncementForm>(emptyAnnouncement);
+  const [alert, setAlert] = useState<AlertForm>(emptyAlert);
+  const [sendingType, setSendingType] = useState<'announcement' | 'alert' | null>(null);
 
   const roleOptions = [
     { value: 'pet_owner', label: 'Pet Owners' },
@@ -20,38 +35,51 @@ export default function AnnouncementsPage() {
   ];
 
   const toggleRole = (role: string) => {
-    setForm(prev => ({
-      ...prev,
-      targetRoles: prev.targetRoles.includes(role)
-        ? prev.targetRoles.filter(r => r !== role)
-        : [...prev.targetRoles, role],
+    setAnnouncement(previous => ({
+      ...previous,
+      targetRoles: previous.targetRoles.includes(role)
+        ? previous.targetRoles.filter(item => item !== role)
+        : [...previous.targetRoles, role],
     }));
   };
 
-  const handleSend = async (isAlert: boolean) => {
-    if (!form.title || !form.message) {
+  const handleSend = async (type: 'announcement' | 'alert') => {
+    const isAlert = type === 'alert';
+    const form = isAlert ? alert : announcement;
+    if (!form.title.trim() || !form.message.trim()) {
       showToast('Title and message are required', 'error');
       return;
     }
-    setIsSending(true);
+
+    setSendingType(type);
     try {
       const endpoint = isAlert ? '/api/admin/alerts' : '/api/admin/announcements';
-      const res = await fetch(endpoint, {
+      const payload = isAlert
+        ? {
+            title: alert.title.trim(),
+            message: alert.message.trim(),
+            affectedArea: alert.affectedArea.trim(),
+          }
+        : {
+            title: announcement.title.trim(),
+            message: announcement.message.trim(),
+            targetRoles: announcement.targetRoles.length ? announcement.targetRoles : undefined,
+          };
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          ...form,
-          targetRoles: form.targetRoles.length > 0 ? form.targetRoles : undefined,
-        }),
+        body: JSON.stringify(payload),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      showToast(`${isAlert ? 'Alert' : 'Announcement'} sent to ${data.notificationsSent || 0} users!`, 'success');
-      setForm({ title: '', message: '', affectedArea: '', targetRoles: [], sendSMSAlert: false, isAlert: false });
-    } catch (err: any) {
-      showToast(err.message, 'error');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Unable to send message');
+
+      showToast(`${isAlert ? 'Alert' : 'Announcement'} sent to ${data.notificationsSent || 0} users`, 'success');
+      if (isAlert) setAlert(emptyAlert);
+      else setAnnouncement(emptyAnnouncement);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Unable to send message', 'error');
     } finally {
-      setIsSending(false);
+      setSendingType(null);
     }
   };
 
@@ -64,75 +92,69 @@ export default function AnnouncementsPage() {
         </div>
 
         <div className="grid-2" style={{ alignItems: 'flex-start' }}>
-          {/* Announcement form */}
           <div className="card" style={{ padding: 24 }}>
-            <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20 }}>📢 New Announcement</h2>
+            <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Megaphone size={19} /> New Announcement
+            </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <label className="input-group">
+                <span className="input-label">Title *</span>
+                <input className="input" placeholder="e.g. Platform Maintenance Notice" value={announcement.title} onChange={event => setAnnouncement(previous => ({ ...previous, title: event.target.value }))} />
+              </label>
+              <label className="input-group">
+                <span className="input-label">Message *</span>
+                <textarea className="input" rows={4} placeholder="Write your announcement message..." value={announcement.message} onChange={event => setAnnouncement(previous => ({ ...previous, message: event.target.value }))} style={{ resize: 'vertical' }} />
+              </label>
               <div className="input-group">
-                <label className="input-label">Title *</label>
-                <input className="input" placeholder="e.g. Platform Maintenance Notice" value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} />
-              </div>
-              <div className="input-group">
-                <label className="input-label">Message *</label>
-                <textarea className="input" rows={4} placeholder="Write your announcement message..." value={form.message} onChange={e => setForm(p => ({ ...p, message: e.target.value }))} style={{ resize: 'vertical' }} />
-              </div>
-              <div className="input-group">
-                <label className="input-label">Target Roles (leave empty for all)</label>
+                <span className="input-label">Target Roles (leave empty for all)</span>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
-                  {roleOptions.map(role => (
-                    <div
-                      key={role.value}
-                      onClick={() => toggleRole(role.value)}
-                      style={{
-                        padding: '6px 14px', borderRadius: 'var(--radius-full)', cursor: 'pointer',
-                        border: `1.5px solid ${form.targetRoles.includes(role.value) ? 'var(--primary)' : 'var(--border)'}`,
-                        background: form.targetRoles.includes(role.value) ? 'var(--primary-light)' : 'white',
-                        color: form.targetRoles.includes(role.value) ? 'var(--primary)' : 'var(--text-secondary)',
-                        fontSize: 13, fontWeight: 500, transition: 'all 0.15s ease',
-                      }}
-                    >
-                      {role.label}
-                    </div>
-                  ))}
+                  {roleOptions.map(role => {
+                    const selected = announcement.targetRoles.includes(role.value);
+                    return (
+                      <button
+                        type="button"
+                        key={role.value}
+                        onClick={() => toggleRole(role.value)}
+                        aria-pressed={selected}
+                        className={`btn btn-sm ${selected ? 'btn-primary' : 'btn-outline'}`}
+                      >
+                        {role.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px', background: 'var(--surface)', borderRadius: 'var(--radius-md)' }}>
-                <input type="checkbox" id="sms" checked={form.sendSMSAlert} onChange={e => setForm(p => ({ ...p, sendSMSAlert: e.target.checked }))} />
-                <label htmlFor="sms" style={{ fontSize: 14, cursor: 'pointer' }}>Also send SMS notification (Twilio)</label>
-              </div>
-              <button className="btn btn-primary btn-full" onClick={() => handleSend(false)} disabled={isSending}>
-                {isSending ? <><div className="spinner" />Sending...</> : '📢 Send Announcement'}
+              <button className="btn btn-primary btn-full" onClick={() => void handleSend('announcement')} disabled={sendingType !== null}>
+                {sendingType === 'announcement' ? <><span className="spinner" />Sending...</> : <><Megaphone size={16} /> Send Announcement</>}
               </button>
             </div>
           </div>
 
-          {/* Health alert form */}
           <div className="card" style={{ padding: 24, border: '1px solid rgba(220,38,38,0.2)' }}>
-            <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8, color: '#dc2626' }}>🚨 Seasonal Health Alert</h2>
+            <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8, color: '#dc2626', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <TriangleAlert size={19} /> Seasonal Health Alert
+            </h2>
             <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20 }}>Send urgent disease outbreak or health warnings to pet owners in affected areas</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div className="input-group">
-                <label className="input-label">Alert Title *</label>
-                <input className="input" placeholder="e.g. Canine Parvovirus Outbreak Warning" value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} />
-              </div>
-              <div className="input-group">
-                <label className="input-label">Alert Details *</label>
-                <textarea className="input" rows={4} placeholder="Describe the health alert, symptoms to watch for, and recommended actions..." value={form.message} onChange={e => setForm(p => ({ ...p, message: e.target.value }))} style={{ resize: 'vertical' }} />
-              </div>
-              <div className="input-group">
-                <label className="input-label">Affected Area</label>
-                <input className="input" placeholder="e.g. Colombo, Western Province" value={form.affectedArea} onChange={e => setForm(p => ({ ...p, affectedArea: e.target.value }))} />
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px', background: '#fee2e2', borderRadius: 'var(--radius-md)' }}>
-                <input type="checkbox" id="smsAlert" checked={form.sendSMSAlert} onChange={e => setForm(p => ({ ...p, sendSMSAlert: e.target.checked }))} />
-                <label htmlFor="smsAlert" style={{ fontSize: 14, cursor: 'pointer', color: '#dc2626', fontWeight: 500 }}>Send urgent SMS to all pet owners (Twilio)</label>
-              </div>
+              <label className="input-group">
+                <span className="input-label">Alert Title *</span>
+                <input className="input" placeholder="e.g. Canine Parvovirus Outbreak Warning" value={alert.title} onChange={event => setAlert(previous => ({ ...previous, title: event.target.value }))} />
+              </label>
+              <label className="input-group">
+                <span className="input-label">Alert Details *</span>
+                <textarea className="input" rows={4} placeholder="Describe the health alert, symptoms to watch for, and recommended actions..." value={alert.message} onChange={event => setAlert(previous => ({ ...previous, message: event.target.value }))} style={{ resize: 'vertical' }} />
+              </label>
+              <label className="input-group">
+                <span className="input-label">Affected Area</span>
+                <input className="input" placeholder="e.g. Colombo, Western Province" value={alert.affectedArea} onChange={event => setAlert(previous => ({ ...previous, affectedArea: event.target.value }))} />
+              </label>
               <button
-                style={{ background: '#dc2626', color: 'white', border: 'none', padding: '12px 20px', borderRadius: 'var(--radius-md)', cursor: 'pointer', fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
-                onClick={() => handleSend(true)}
-                disabled={isSending}
+                className="btn btn-full"
+                style={{ background: '#dc2626', color: 'white', border: 'none' }}
+                onClick={() => void handleSend('alert')}
+                disabled={sendingType !== null}
               >
-                {isSending ? <><div className="spinner" />Sending...</> : '🚨 Send Health Alert'}
+                {sendingType === 'alert' ? <><span className="spinner" />Sending...</> : <><TriangleAlert size={16} /> Send Health Alert</>}
               </button>
             </div>
           </div>

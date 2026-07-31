@@ -14,9 +14,17 @@ import connectDB from '@/lib/db';
 import User from '@/models/User';
 import { verifyToken } from '@/lib/jwt';
 import { resetPasswordSchema } from '@/lib/validations/auth';
+import { consumeRateLimit, requestClientKey } from '@/lib/rate-limit';
 
 export async function POST(req: NextRequest) {
   try {
+    const rateLimit = consumeRateLimit(`reset-password:${requestClientKey(req)}`, 10, 30 * 60 * 1000);
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: 'Too many password reset attempts. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) } },
+      );
+    }
     await connectDB();
 
     const body = await req.json();

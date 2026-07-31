@@ -21,7 +21,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
 
     const isAdminPage = pathname.startsWith('/admin');
-    const isProviderPage = pathname.startsWith('/provider');
+    const isProviderPage = pathname === '/provider' || pathname.startsWith('/provider/');
     const isOwnerPage = ['/dashboard', '/pets', '/health-records', '/appointments', '/providers']
       .some(route => pathname === route || pathname.startsWith(`${route}/`));
     if (isAdminPage && user.role !== 'admin') {
@@ -36,7 +36,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (isLoading) return <div className="app-loading"><PawPrint size={30} /><div className="spinner spinner-dark" /></div>;
   if (!user) return null;
   const roleMismatch = (pathname.startsWith('/admin') && user.role !== 'admin')
-    || (pathname.startsWith('/provider') && !['veterinarian', 'service_provider'].includes(user.role))
+    || ((pathname === '/provider' || pathname.startsWith('/provider/')) && !['veterinarian', 'service_provider'].includes(user.role))
     || (['/dashboard', '/pets', '/health-records', '/appointments', '/providers']
       .some(route => pathname === route || pathname.startsWith(`${route}/`)) && user.role !== 'pet_owner');
   if (roleMismatch) return <div className="app-loading"><PawPrint size={30} /><div className="spinner spinner-dark" /></div>;
@@ -45,6 +45,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <Sidebar open={navigationOpen} onClose={() => setNavigationOpen(false)} />
     <header className="mobile-header"><button onClick={() => setNavigationOpen(true)} aria-label="Open navigation"><Menu size={20} /></button><span><PawPrint size={18} /> PawSync</span></header>
     <main className="main-content"><div className="content-container">{children}</div></main>
-    <Link href="/emergency" className="emergency-action" aria-label="Emergency services" title="Emergency services"><Siren size={20} /></Link>
+    {(user.role === 'admin' || user.role === 'pet_owner') && <Link href={user.role === 'admin' ? '/admin/emergency-services' : '/emergency'} className="emergency-action" aria-label={user.role === 'admin' ? 'Manage emergency services' : 'Emergency services'} title={user.role === 'admin' ? 'Manage emergency services' : 'Emergency services'}><Siren size={20} /></Link>}
   </div>;
 }

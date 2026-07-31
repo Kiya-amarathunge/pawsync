@@ -16,14 +16,14 @@ import Appointment from '@/models/Appointment';
 import Pet from '@/models/Pet';
 import ServiceProvider from '@/models/ServiceProvider';
 import Veterinarian from '@/models/Veterinarian';
-import '@/models/User';
+import User from '@/models/User';
 import { getRequestUser, hasRole } from '@/lib/request-auth';
 import { intervalsOverlap, isWithinAvailability } from '@/lib/appointments';
 import { createNotification } from '@/lib/notifications';
 
 const bookingSchema = z.object({
   petId: z.string().min(1), providerId: z.string().min(1),
-  serviceType: z.enum(['veterinary', 'grooming', 'training', 'boarding']),
+  serviceType: z.enum(['veterinary', 'grooming', 'training', 'boarding', 'sitting']),
   dateTime: z.string().datetime(), duration: z.number().int().min(15).max(480).optional(),
   notes: z.string().trim().max(2000).optional().default(''),
 });
@@ -56,14 +56,21 @@ export async function POST(req: NextRequest) {
     const parsed = bookingSchema.safeParse(await req.json());
     if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
     const data = parsed.data;
-    const [pet, serviceProvider, veterinarian] = await Promise.all([
+    const [pet, providerUser, serviceProvider, veterinarian] = await Promise.all([
       Pet.findOne({ _id: data.petId, ownerId: user.userId }),
-      ServiceProvider.findOne({ providerId: data.providerId, isVerified: true }),
-      Veterinarian.findOne({ vetId: data.providerId, isVerified: true }),
+      User.findOne({
+        _id: data.providerId,
+        role: { $in: ['veterinarian', 'service_provider'] },
+        isActive: true,
+        isSuspended: false,
+        verificationStatus: 'approved',
+      }),
+      ServiceProvider.findOne({ providerId: data.providerId }),
+      Veterinarian.findOne({ vetId: data.providerId }),
     ]);
     if (!pet) return NextResponse.json({ error: 'Pet not found' }, { status: 404 });
     const provider = serviceProvider || veterinarian;
-    if (!provider) return NextResponse.json({ error: 'Verified provider not found' }, { status: 404 });
+    if (!providerUser || !provider) return NextResponse.json({ error: 'Verified provider not found' }, { status: 404 });
     const serviceTypes = serviceProvider?.serviceType || ['veterinary'];
     if (!serviceTypes.includes(data.serviceType)) return NextResponse.json({ error: 'Provider does not offer this service' }, { status: 400 });
     const pricing = provider.pricing?.find((item: { service: string }) => item.service === data.serviceType);

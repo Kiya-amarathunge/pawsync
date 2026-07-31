@@ -66,6 +66,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       message: `Announcement sent to ${users.length} users successfully`,
+      notificationsSent: users.length,
     });
   } catch (error) {
     console.error('Send announcement error:', error);

@@ -32,7 +32,8 @@ export async function GET(req: NextRequest) {
     const admin = getAdminFromRequest(req);
     if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const page = parseInt(req.nextUrl.searchParams.get('page') || '1');
+    const requestedPage = Number.parseInt(req.nextUrl.searchParams.get('page') || '1', 10);
+    const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
     const limit = 20;
 
     // Find providers and vets pending verification
@@ -67,7 +68,7 @@ export async function GET(req: NextRequest) {
       verificationStatus: { $in: ['pending', 'more_info_requested'] },
     });
 
-    return NextResponse.json({ pendingUsers: withProfiles, total, page });
+    return NextResponse.json({ pendingUsers: withProfiles, total, page, pages: Math.ceil(total / limit) });
   } catch (error) {
     console.error('Get verifications error:', error);
     return NextResponse.json({ error: 'Something went wrong' }, { status: 500 });

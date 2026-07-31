@@ -16,7 +16,19 @@ export default function ProviderAppointmentsPage() {
   const load = useCallback(async () => { if (!token) return; const response = await fetch('/api/appointments', { headers: { Authorization: `Bearer ${token}` } }); const data = await response.json(); setAppointments(data.appointments || []); setLoading(false); }, [token]);
   useEffect(() => { void load(); }, [load]);
   // All status transitions are validated again on the server before they are persisted.
-  const updateStatus = async (id: string, status: string, newDateTime?: string) => { const response = await fetch(`/api/appointments/${id}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ status, newDateTime: newDateTime ? new Date(newDateTime).toISOString() : undefined }) }); const data = await response.json(); if (!response.ok) return showToast(data.error || 'Unable to update appointment', 'error'); showToast(data.message, 'success'); setProposingId(''); setProposedDate(''); await load(); };
+  const updateStatus = async (id: string, status: string, newDateTime?: string) => {
+    const response = await fetch(`/api/appointments/${id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ status, newDateTime: newDateTime ? new Date(newDateTime).toISOString() : undefined }),
+    });
+    const data = await response.json();
+    if (!response.ok) return showToast(data.error || 'Unable to update appointment', 'error');
+    showToast(data.message, 'success');
+    setProposingId('');
+    setProposedDate('');
+    await load();
+  };
   const filtered = appointments.filter(appointment => appointment.status === activeTab);
   // Calendar mode groups actionable appointments by their ISO date.
   const byDate = useMemo(() => appointments.filter(appointment => ['pending', 'confirmed', 'rescheduled'].includes(appointment.status)).reduce<Record<string, Appointment[]>>((groups, appointment) => { const key = new Date(appointment.dateTime).toISOString().slice(0, 10); (groups[key] ||= []).push(appointment); return groups; }, {}), [appointments]);

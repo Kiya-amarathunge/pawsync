@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
+import Pagination from '@/components/ui/Pagination';
 
 interface Dispute {
   _id: string;
@@ -37,19 +38,24 @@ export default function AdminDisputesPage() {
   const [refundAmount, setRefundAmount] = useState('');
   const [loading, setLoading] = useState(true);
   const [resolving, setResolving] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(1);
+  const [total, setTotal] = useState(0);
 
   const load = useCallback(async () => {
     if (!token) return;
     setLoading(true);
-    const response = await fetch(`/api/admin/disputes?status=${status}`, {
+    const response = await fetch(`/api/admin/disputes?status=${status}&page=${page}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     const data = await response.json();
     if (!response.ok) showToast(data.error || 'Unable to load disputes', 'error');
     setDisputes(response.ok ? data.disputes || [] : []);
+    setTotal(response.ok ? data.total || 0 : 0);
+    setPages(response.ok ? Math.max(1, data.pages || 1) : 1);
     setSelected(current => current && data.disputes?.some((item: Dispute) => item._id === current._id) ? current : null);
     setLoading(false);
-  }, [showToast, status, token]);
+  }, [page, showToast, status, token]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -94,7 +100,7 @@ export default function AdminDisputesPage() {
   return <DashboardLayout>
     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, marginBottom: 20, alignItems: 'flex-start' }}>
       <div><h1 className="page-title">Disputes</h1><p className="page-subtitle">Review and resolve appointment-related complaints</p></div>
-      <select className="input" style={{ maxWidth: 170 }} value={status} onChange={event => setStatus(event.target.value)}><option value="open">Open</option><option value="under_review">Under review</option><option value="resolved">Resolved</option><option value="dismissed">Dismissed</option><option value="all">All cases</option></select>
+      <select className="input" style={{ maxWidth: 170 }} value={status} onChange={event => { setStatus(event.target.value); setPage(1); }}><option value="open">Open</option><option value="under_review">Under review</option><option value="resolved">Resolved</option><option value="dismissed">Dismissed</option><option value="all">All cases</option></select>
     </div>
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 0.9fr) minmax(340px, 1.1fr)', gap: 18, alignItems: 'start' }}>
       <div style={{ display: 'grid', gap: 10 }}>
@@ -104,6 +110,7 @@ export default function AdminDisputesPage() {
           <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3 }}>{dispute.openedBy?.name || 'User'} · {new Date(dispute.createdAt).toLocaleDateString()}</p>
         </button>)}
         {!loading && disputes.length === 0 && <div className="empty-state"><p>No {status === 'all' ? '' : status.replace('_', ' ')} disputes.</p></div>}
+        {!loading && total > 0 && <div className="card" style={{ overflow: 'hidden' }}><Pagination page={page} pages={pages} total={total} itemLabel="disputes" onPageChange={setPage} /></div>}
       </div>
 
       {selected ? <section className="card" style={{ padding: 22 }}>
@@ -113,8 +120,8 @@ export default function AdminDisputesPage() {
           {[['Owner', selected.ownerId?.name, selected.ownerId?.email], ['Provider', selected.providerId?.name, selected.providerId?.email], ['Service', selected.appointmentId?.serviceType, selected.appointmentId?.status], ['Appointment', selected.appointmentId?.dateTime ? new Date(selected.appointmentId.dateTime).toLocaleString() : '', `Rs. ${(selected.appointmentId?.price || 0).toLocaleString()}`]].map(([label, primary, secondary]) => <div key={label} style={{ padding: 11, background: 'var(--surface)' }}><p style={{ color: 'var(--text-muted)', fontSize: 11 }}>{label}</p><strong style={{ fontSize: 13, textTransform: 'capitalize' }}>{primary || 'Not available'}</strong>{secondary && <p style={{ color: 'var(--text-secondary)', fontSize: 11 }}>{secondary}</p>}</div>)}
         </div>
         {['resolved', 'dismissed'].includes(selected.status) ? <div style={{ marginTop: 16, padding: 13, background: 'var(--primary-light)', borderLeft: '3px solid var(--primary)' }}><strong>Resolution</strong><p style={{ marginTop: 5 }}>{selected.resolution}</p></div> : <div style={{ display: 'grid', gap: 10, marginTop: 17 }}>
-          <label className="input-group"><span className="input-label">Resolution action</span><select className="input" value={action} onChange={event => setAction(event.target.value as typeof action)}><option value="mediate">Mediation only</option><option value="cancel">Cancel appointment</option><option value="refund">Approve refund</option><option value="dismiss">Dismiss complaint</option></select></label>
-          {action === 'refund' && <label className="input-group"><span className="input-label">Refund amount</span><input className="input" type="number" min="0" max={selected.appointmentId?.price || undefined} value={refundAmount} onChange={event => setRefundAmount(event.target.value)} required /></label>}
+          <label className="input-group"><span className="input-label">Resolution action</span><select className="input" value={action} onChange={event => setAction(event.target.value as typeof action)}><option value="mediate">Mediation only</option><option value="cancel">Cancel appointment</option><option value="refund">Record refund recommendation</option><option value="dismiss">Dismiss complaint</option></select></label>
+          {action === 'refund' && <><label className="input-group"><span className="input-label">Recommended refund amount</span><input className="input" type="number" min="0" max={selected.appointmentId?.price || undefined} value={refundAmount} onChange={event => setRefundAmount(event.target.value)} required /></label><p style={{ fontSize: 12, color: 'var(--text-muted)' }}>This creates an approval record only. PawSync does not transfer money.</p></>}
           <label className="input-group"><span className="input-label">Resolution decision</span><textarea className="input" rows={5} value={resolution} onChange={event => setResolution(event.target.value)} placeholder="Explain the decision and any action taken" /></label>
           <button className="btn btn-primary" disabled={resolving} onClick={() => void resolve()}>{resolving ? 'Resolving...' : action === 'dismiss' ? 'Dismiss dispute' : 'Resolve dispute'}</button>
         </div>}

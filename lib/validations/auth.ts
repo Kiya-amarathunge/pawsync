@@ -14,7 +14,8 @@ export const registerSchema = z.object({
   specialization: z.string().optional(),
   businessName: z.string().optional(),
   businessRegistrationNumber: z.string().optional(),
-  serviceType: z.array(z.string()).optional(),
+  serviceType: z.array(z.enum(["grooming", "training", "boarding", "sitting"])).optional(),
+  acceptedTerms: z.boolean().refine(value => value, 'You must accept the Terms of Use and Privacy Notice'),
 }).superRefine((data, context) => {
   if (data.role === "veterinarian") {
     if (!data.licenseNumber?.trim()) {

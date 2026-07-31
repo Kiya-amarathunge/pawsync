@@ -1,5 +1,7 @@
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
+import { unlink } from 'fs/promises';
+import path from 'path';
 
 process.loadEnvFile('.env.local');
 
@@ -17,15 +19,15 @@ function record(name, passed, detail) {
   console.log(`${passed ? 'PASS' : 'FAIL'}  ${name}${detail ? ` - ${detail}` : ''}`);
 }
 
-async function request(name, path, { method = 'GET', token, body, expected = [200] } = {}) {
+async function request(name, path, { method = 'GET', token, body, formData, expected = [200] } = {}) {
   try {
     const response = await fetch(`${baseUrl}${path}`, {
       method,
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...(body !== undefined && !formData ? { 'Content-Type': 'application/json' } : {}),
       },
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      ...(formData ? { body: formData } : body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
     const text = await response.text();
     let data = {};
@@ -54,7 +56,7 @@ async function seed() {
     { _id: ids.admin, ...common, email: `${runId}-admin@example.test`, name: 'API Test Admin', role: 'admin', adminRole: 'super_admin', verificationStatus: 'approved' },
   ]);
   const availability = Array.from({ length: 7 }, (_, dayOfWeek) => ({ dayOfWeek, startTime: '00:00', endTime: '23:59' }));
-  await db.collection('serviceproviders').insertOne({ providerId: ids.provider, businessName: 'API Test Pet Care', businessRegistrationNumber: runId, serviceType: ['grooming', 'boarding', 'training'], credentials: 'Integration-test credential', specialization: 'Pet care', location: { address: 'Colombo', lat: 6.9271, lng: 79.8612 }, yearsOfExperience: 5, isVerified: true, verificationDocuments: [], availability, blockedDates: [], pricing: [{ service: 'grooming', price: 2500, duration: 60 }, { service: 'boarding', price: 4000, duration: 60 }], responseRate: 100, acceptanceRate: 100, businessDescription: 'Temporary integration-test provider', photos: [], serviceRadiusKm: 50 });
+  await db.collection('serviceproviders').insertOne({ providerId: ids.provider, businessName: 'API Test Pet Care', businessRegistrationNumber: runId, serviceType: ['grooming', 'boarding', 'training', 'sitting'], credentials: 'Integration-test credential', specialization: 'Pet care', location: { address: 'Colombo' }, yearsOfExperience: 5, isVerified: true, verificationDocuments: [], availability, blockedDates: [], pricing: [{ service: 'grooming', price: 2500, duration: 60 }, { service: 'boarding', price: 4000, duration: 60 }, { service: 'sitting', price: 3000, duration: 60 }], responseRate: 100, acceptanceRate: 100, businessDescription: 'Temporary integration-test provider', photos: [], serviceRadiusKm: 50 });
   ids.emergencyContact = new mongoose.Types.ObjectId();
   await db.collection('emergencycontacts').insertOne({ _id: ids.emergencyContact, name: 'API Test Emergency Clinic', address: 'Colombo', phone: '+94110000000', location: { lat: 6.9271, lng: 79.8612 }, is24Hours: true, specializations: ['emergency'], isVerified: true, isAvailable: true, availabilityUpdatedAt: now, linkedProviderId: ids.provider });
 }
@@ -67,12 +69,12 @@ async function login(label, email) {
 async function cleanup() {
   const db = mongoose.connection.db;
   if (!db) return;
-  const userIds = [ids.owner, ids.provider, ids.admin].filter(Boolean);
+  const userIds = [ids.owner, ids.provider, ids.admin, ids.applicant].filter(Boolean);
   const collections = await db.listCollections().toArray();
   const names = new Set(collections.map(item => item.name));
   const deletions = {
     users: { _id: { $in: userIds } },
-    serviceproviders: { providerId: ids.provider },
+    serviceproviders: { providerId: { $in: [ids.provider, ids.applicant].filter(Boolean) } },
     pets: { ownerId: ids.owner },
     appointments: { $or: [{ ownerId: ids.owner }, { providerId: ids.provider }] },
     healthrecords: { ownerId: ids.owner },
@@ -81,10 +83,13 @@ async function cleanup() {
     reviews: { $or: [{ ownerId: ids.owner }, { providerId: ids.provider }] },
     forumposts: { authorId: { $in: userIds } },
     emergencyevents: { ownerId: ids.owner },
-    emergencycontacts: { _id: ids.emergencyContact },
+    emergencycontacts: { _id: { $in: [ids.emergencyContact, ids.createdEmergency].filter(Boolean) } },
     pushsubscriptions: { userId: { $in: userIds } },
   };
   for (const [name, filter] of Object.entries(deletions)) if (names.has(name)) await db.collection(name).deleteMany(filter);
+  if (ids.applicantCredential) {
+    await unlink(path.join(process.cwd(), 'storage', 'provider-credentials', ids.applicantCredential)).catch(() => undefined);
+  }
   await mongoose.disconnect();
 }
 
@@ -103,6 +108,50 @@ async function run() {
   providerToken = await login('Provider', providerEmail);
   adminToken = await login('Admin', adminEmail);
 
+  const applicantEmail = `${runId}-applicant@example.test`;
+  await request('Provider registration rejects missing credential evidence', '/api/auth/register', {
+    method: 'POST',
+    expected: [400],
+    body: {
+      email: applicantEmail,
+      password,
+      name: 'API Test Applicant',
+      phoneNumber: '+94770000001',
+      role: 'service_provider',
+      businessName: 'Applicant Pet Care',
+      businessRegistrationNumber: `BR-${runId}`,
+      serviceType: ['grooming'],
+      acceptedTerms: true,
+    },
+  });
+  const application = new FormData();
+  for (const [key, value] of Object.entries({
+    email: applicantEmail,
+    password,
+    name: 'API Test Applicant',
+    phoneNumber: '+94770000001',
+    role: 'service_provider',
+    businessName: 'Applicant Pet Care',
+    businessRegistrationNumber: `BR-${runId}`,
+    serviceType: JSON.stringify(['grooming']),
+    acceptedTerms: 'true',
+  })) application.append(key, value);
+  application.append('verificationDocument', new Blob(['integration credential evidence'], { type: 'application/pdf' }), 'credential.pdf');
+  await request('Provider registers with credential evidence', '/api/auth/register', {
+    method: 'POST',
+    expected: [201],
+    formData: application,
+  });
+  const applicant = await mongoose.connection.db.collection('users').findOne({ email: applicantEmail });
+  ids.applicant = applicant?._id;
+  const applicantProfile = await mongoose.connection.db.collection('serviceproviders').findOne({ providerId: ids.applicant });
+  ids.applicantCredential = applicantProfile?.verificationDocuments?.[0];
+  await request('Admin approves credentialed provider', `/api/admin/verifications/${ids.applicant}/approve`, {
+    method: 'PATCH',
+    token: adminToken,
+  });
+  await login('Approved provider applicant', applicantEmail);
+
   const petResult = await request('Create pet', '/api/pets', { method: 'POST', token: ownerToken, expected: [201], body: { name: 'Integration Pet', species: 'Dog', breed: 'Mixed', birthDate: '2022-05-10', weight: 14.5, dietaryInfo: 'Balanced diet' } });
   ids.pet = petResult.data.pet?._id;
   await request('List owner pets', '/api/pets', { token: ownerToken });
@@ -114,6 +163,7 @@ async function run() {
 
   await request('Read provider profile', '/api/provider/profile', { token: providerToken });
   await request('Update provider profile', '/api/provider/profile', { method: 'PUT', token: providerToken, body: { businessDescription: 'Updated by automated API integration testing', serviceRadiusKm: 40 } });
+  await request('Read approved service-provider details', `/api/providers/${ids.provider}`);
 
   const appointmentDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
   appointmentDate.setHours(10, 0, 0, 0);
@@ -122,7 +172,14 @@ async function run() {
   await request('Owner lists appointments', '/api/appointments', { token: ownerToken });
   await request('Provider lists appointments', '/api/appointments', { token: providerToken });
   await request('Provider confirms appointment', `/api/appointments/${ids.appointment}/status`, { method: 'PATCH', token: providerToken, body: { status: 'confirmed' } });
+  await request('Provider cannot complete a future appointment', `/api/appointments/${ids.appointment}/status`, { method: 'PATCH', token: providerToken, expected: [409], body: { status: 'completed' } });
+  await mongoose.connection.db.collection('appointments').updateOne(
+    { _id: new mongoose.Types.ObjectId(ids.appointment) },
+    { $set: { dateTime: new Date(Date.now() - 60 * 60 * 1000) } },
+  );
   await request('Provider completes appointment', `/api/appointments/${ids.appointment}/status`, { method: 'PATCH', token: providerToken, body: { status: 'completed' } });
+  const sittingDate = new Date(appointmentDate.getTime() + 2 * 60 * 60 * 1000);
+  await request('Create pet-sitting appointment', '/api/appointments', { method: 'POST', token: ownerToken, expected: [201], body: { petId: ids.pet, providerId: String(ids.provider), serviceType: 'sitting', dateTime: sittingDate.toISOString(), notes: 'API integration pet-sitting booking' } });
 
   const reviewResult = await request('Owner submits verified review', '/api/reviews', { method: 'POST', token: ownerToken, expected: [201], body: { appointmentId: ids.appointment, rating: 5, comment: 'The provider delivered a professional and attentive service during this completed appointment.' } });
   ids.review = reviewResult.data.review?._id;
@@ -131,6 +188,9 @@ async function run() {
 
   const messageResult = await request('Owner sends provider message', '/api/messages', { method: 'POST', token: ownerToken, expected: [201], body: { receiverId: String(ids.provider), content: 'Hello, this is an API integration test message.' } });
   ids.message = messageResult.data.data?._id;
+  await request('Owner lists approved message recipients', '/api/messages/recipients', { token: ownerToken });
+  await request('Owner searches message recipients by name', '/api/messages/recipients?q=API%20Test', { token: ownerToken });
+  await request('Provider cannot browse provider recipients', '/api/messages/recipients', { token: providerToken, expected: [403] });
   await request('Provider lists conversations', '/api/messages', { token: providerToken });
   await request('Provider reads conversation', `/api/messages/${ids.owner}`, { token: providerToken });
   await request('Owner-to-owner messaging is rejected', '/api/messages', { method: 'POST', token: ownerToken, expected: [404], body: { receiverId: String(ids.owner), content: 'This should not be accepted.' } });
@@ -140,13 +200,16 @@ async function run() {
   await request('Reply to forum post', `/api/forum/posts/${ids.post}/replies`, { method: 'POST', token: ownerToken, expected: [201], body: { content: 'Bring vaccination information and mention any handling concerns.' } });
   await request('Follow forum post', `/api/forum/posts/${ids.post}/follow`, { method: 'PATCH', token: ownerToken });
   await request('List forum posts', '/api/forum/posts?sort=recent', { token: ownerToken });
+  await request('Search forum topics by keyword', '/api/forum/posts?sort=recent&q=grooming', { token: ownerToken });
   await request('Forum participation metrics', '/api/forum/participation', { token: ownerToken });
 
   await request('List notifications', '/api/notifications', { token: ownerToken });
   await request('Read notification preferences', '/api/notifications/preferences', { token: ownerToken });
   await request('Update notification preferences', '/api/notifications/preferences', { method: 'PUT', token: ownerToken, body: { inApp: true, email: false, sms: false, push: false, appointmentReminders: true, healthReminders: true, messages: true, reviews: true, announcements: true } });
 
-  await request('Find nearby emergency services', '/api/emergency/services?lat=6.9271&lng=79.8612');
+  await request('List approved emergency services', '/api/emergency/services');
+  const emergencyResult = await request('Admin registers emergency service without coordinates', '/api/admin/emergency-services', { method: 'POST', token: adminToken, expected: [201], body: { name: 'Coordinate-free Emergency Care', address: 'Colombo 03', phone: '+94112223344', is24Hours: true, specializations: ['Emergency care'] } });
+  ids.createdEmergency = emergencyResult.data.service?._id;
   await request('Emergency contact event', '/api/emergency/contact', { method: 'POST', token: ownerToken, body: { clinicId: String(ids.emergencyContact), petId: ids.pet, reason: 'Automated emergency workflow check', shareRecords: true } });
 
   await request('Admin dashboard', '/api/admin/dashboard', { token: adminToken });

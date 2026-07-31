@@ -12,8 +12,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
 import Appointment from '@/models/Appointment';
+import ServiceProvider from '@/models/ServiceProvider';
+import Veterinarian from '@/models/Veterinarian';
 import { getRequestUser } from '@/lib/request-auth';
-import { intervalsOverlap } from '@/lib/appointments';
+import { hasAppointmentTimePassed, intervalsOverlap, isWithinAvailability } from '@/lib/appointments';
 import { createNotification } from '@/lib/notifications';
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -56,9 +58,31 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (!allowedTransitions[appointment.status]?.includes(status)) {
       return NextResponse.json({ error: `A ${appointment.status} appointment cannot be changed to ${status}` }, { status: 409 });
     }
+    if (status === 'completed' && !hasAppointmentTimePassed(appointment.dateTime)) {
+      return NextResponse.json(
+        { error: 'This appointment can only be marked complete after its scheduled date and time' },
+        { status: 409 },
+      );
+    }
     if (status === 'rescheduled') {
       if (!newDateTime) return NextResponse.json({ error: 'A proposed date and time is required' }, { status: 400 });
       const proposed = new Date(newDateTime);
+      if (Number.isNaN(proposed.getTime()) || proposed.getTime() <= Date.now()) {
+        return NextResponse.json({ error: 'The proposed appointment time must be in the future' }, { status: 400 });
+      }
+      const provider = user.role === 'veterinarian'
+        ? await Veterinarian.findOne({ vetId: user.userId })
+        : await ServiceProvider.findOne({ providerId: user.userId });
+      if (!provider) return NextResponse.json({ error: 'Provider profile not found' }, { status: 404 });
+      const hours = provider.availability.find(
+        (slot: { dayOfWeek: number }) => slot.dayOfWeek === proposed.getDay(),
+      );
+      const blocked = provider.blockedDates.some(
+        (date: Date) => date.toDateString() === proposed.toDateString(),
+      );
+      if (!hours || blocked || !isWithinAvailability(proposed, appointment.duration, hours)) {
+        return NextResponse.json({ error: 'The proposed time is outside your available working hours' }, { status: 409 });
+      }
       const proposedEnd = new Date(proposed.getTime() + appointment.duration * 60_000);
       const conflicts = await Appointment.find({ _id: { $ne: appointment._id }, providerId: user.userId, dateTime: { $lt: proposedEnd }, status: { $in: ['pending', 'confirmed'] } });
       if (conflicts.some(item => intervalsOverlap(proposed, appointment.duration, item))) return NextResponse.json({ error: 'Proposed time overlaps another appointment' }, { status: 409 });

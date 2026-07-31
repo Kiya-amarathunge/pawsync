@@ -21,10 +21,17 @@ const schema = z.object({ category: z.enum(['health', 'nutrition', 'training', '
 export async function GET(req: NextRequest) {
   try {
     await connectDB();
-    const category = req.nextUrl.searchParams.get('category'); const sort = req.nextUrl.searchParams.get('sort') || 'recent'; const flagged = req.nextUrl.searchParams.get('flagged') === 'true';
+    const category = req.nextUrl.searchParams.get('category'); const sort = req.nextUrl.searchParams.get('sort') || 'recent'; const flagged = req.nextUrl.searchParams.get('flagged') === 'true'; const query = req.nextUrl.searchParams.get('q')?.trim();
     const page = Math.max(1, Number(req.nextUrl.searchParams.get('page')) || 1); const limit = 20; const user = getRequestUser(req);
     const filter: Record<string, unknown> = flagged && user?.role === 'admin' ? { isFlagged: true, removedAt: { $exists: false } } : { isModerated: false, isFlagged: false, removedAt: { $exists: false } };
     if (category && category !== 'all') filter.category = category;
+    if (query) {
+      const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      filter.$or = [
+        { title: { $regex: escapedQuery, $options: 'i' } },
+        { content: { $regex: escapedQuery, $options: 'i' } },
+      ];
+    }
     let posts = await ForumPost.find(filter).populate('authorId', 'name role').populate('replies.authorId', 'name role').lean();
     posts = posts.map(post => ({ ...post, isFollowing: user ? post.followers?.some((id: unknown) => String(id) === user.userId) : false, trendingScore: (post.upvotes?.length || 0) * 3 + (post.replies?.length || 0) * 2 + (post.views || 0) * 0.1 }));
     posts.sort(sort === 'trending' ? (a, b) => b.trendingScore - a.trendingScore : (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());

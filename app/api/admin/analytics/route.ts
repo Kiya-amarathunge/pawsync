@@ -33,11 +33,14 @@ export async function GET(req: NextRequest) {
     if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const period = req.nextUrl.searchParams.get('period') || 'month';
-    const startDate = new Date();
+    const now = new Date();
+    const startDate = new Date(now);
     if (period === 'week') {
-      startDate.setDate(startDate.getDate() - 7);
+      startDate.setHours(0, 0, 0, 0);
+      startDate.setDate(startDate.getDate() - startDate.getDay());
     } else {
-      startDate.setMonth(startDate.getMonth() - 1);
+      startDate.setFullYear(now.getFullYear(), now.getMonth(), 1);
+      startDate.setHours(0, 0, 0, 0);
     }
 
     const [
